@@ -74,10 +74,30 @@ const getTraitColors = (axis: string, traitId: string) => {
   };
 };
 
-function TraitBadge({ trait, index, colors, isTop1 }: { trait: any, index: number, colors: any, isTop1: boolean }) {
+function getKamonStampImage(trait: any) {
   const top5Image = trait.top5Image || trait.top5_image;
-  const iconIsUrl = trait.icon?.startsWith('http') || trait.icon?.startsWith('/');
-  const hasTop5CustomImage = top5Image && (top5Image.startsWith('http') || top5Image.startsWith('/'));
+  if (top5Image && (top5Image.startsWith('http') || top5Image.startsWith('/'))) return top5Image;
+  if (trait.icon && (trait.icon.startsWith('http') || trait.icon.startsWith('/'))) return trait.icon;
+
+  const axisKamonMap: Record<string, string> = {
+    dom: 'domination',
+    sadism: 'sadism',
+    control: 'bondage',
+    care: 'sensory',
+    sub: 'submission',
+    maso: 'masochist',
+    tied: 'sensory_deprivation',
+    spoiled: 'roleplay',
+    emotional: 'mental_control',
+    diverse: 'diverse_relations'
+  };
+
+  const kamonKey = axisKamonMap[trait.axis] || 'bdsm';
+  return `/images/nodes/kamon_${kamonKey}.png`;
+}
+
+function TraitBadge({ trait, index, colors, isTop1 }: { trait: any, index: number, colors: any, isTop1: boolean }) {
+  const kamonImgSrc = getKamonStampImage(trait);
 
   return (
     <div 
@@ -104,36 +124,22 @@ function TraitBadge({ trait, index, colors, isTop1 }: { trait: any, index: numbe
         className="w-full flex-1 flex flex-col items-center justify-center p-3 rounded-[24px] border border-dashed border-black/10 relative overflow-hidden bg-white/40 dark:bg-black/10"
       >
         {/* 背景放射光束與微質感網紋 */}
-        <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: `radial-gradient(${colors.border} 2px, transparent 2px)`, backgroundSize: '10px 10px' }} />
+        <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: `radial-gradient(${colors.border} 2px, transparent 2px)`, backgroundSize: '10px 10px' }} />
 
-        {/* 典藏圖示與 TOP 5 專屬大圖支援 */}
-        {hasTop5CustomImage ? (
-          <div className={`relative w-full aspect-square mb-2 rounded-2xl overflow-hidden border-2 border-white/80 shadow-md group-hover:scale-105 transition-transform duration-300`}>
-            <img 
-              src={top5Image} 
-              alt={trait.name} 
-              className="w-full h-full object-cover" 
-              crossOrigin="anonymous" 
-            />
-          </div>
-        ) : (
-          <div className={`relative flex items-center justify-center rounded-full border-2 mb-2 group-hover:scale-110 transition-transform duration-300 ${
-            isTop1 ? 'w-20 h-20 bg-white/90 border-[#D9B650] shadow-md' : 'w-14 h-14 bg-white/80 border-[#D1C6B4]/60 shadow-xs'
-          }`}>
-            {iconIsUrl ? (
-              <img 
-                src={trait.icon}
-                alt={trait.name}
-                className="w-4/5 h-4/5 object-contain drop-shadow-xs"
-                crossOrigin="anonymous"
-              />
-            ) : (
-              <span className={isTop1 ? 'text-4xl drop-shadow-xs' : 'text-2xl drop-shadow-xs'}>
-                {trait.icon || '✨'}
-              </span>
-            )}
-          </div>
-        )}
+        {/* 和風 Kamon 圖章與典藏徽章 */}
+        <div className={`relative flex items-center justify-center rounded-full border-2 mb-2 group-hover:scale-110 transition-transform duration-300 overflow-hidden ${
+          isTop1 ? 'w-20 h-20 bg-white/90 border-[#D9B650] shadow-md p-1.5' : 'w-14 h-14 bg-white/80 border-[#D1C6B4]/60 shadow-xs p-1'
+        }`}>
+          <img 
+            src={kamonImgSrc} 
+            alt={trait.name} 
+            className="w-full h-full object-contain drop-shadow-xs" 
+            crossOrigin="anonymous" 
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = '/images/nodes/kamon_bdsm.png';
+            }}
+          />
+        </div>
 
         {/* 特質名稱與極致燙金質感分比 */}
         <span className={`font-black tracking-widest text-center ${isTop1 ? 'text-xl sm:text-2xl' : 'text-sm'}`} style={{ color: colors.text }}>
@@ -188,17 +194,24 @@ export function QuizResultPhase({ scores, aiAnalysis, isAiLoading, onRestart }: 
     return matched || (endings && endings[0]) || { title: '終局', subtitle: '', image: '', commentary: '' };
   }, [top5, endings]);
 
-  // 3. AI 解析 (覆蓋預設標題)
+  // 3. AI 解析 (覆蓋預設標題，智慧防止未設定 API 金鑰字樣)
   const { title: aiTitle, description: aiDesc } = useMemo(() => {
-    if (!aiAnalysis) return { title: '生成專屬印記中...', description: ending?.commentary || '' };
+    const isApiKeyMissing = !aiAnalysis || aiAnalysis.includes('未設定 API 金鑰') || aiAnalysis.includes('失敗');
+    if (isApiKeyMissing) {
+      const top1Name = top5[0]?.name || '靈魂探索者';
+      const top2Name = top5[1]?.name || '支配者';
+      const title = ending?.title || `【夜幕的${top1Name}】`;
+      const desc = `在親密互動與心理光譜中，你展現出深邃的靈魂掌控力與敏銳直覺。核心特質【${top1Name}】（契合度 ${top5[0]?.score || 85}%）與輔助特質【${top2Name}】相互交織，引導著你對權力流動與信任邊界的獨特感知。建議在每一次溝通中遵循 SSC/RACK 原則，享受深層信任所帶來的平靜與精神共鳴。`;
+      return { title, description: desc };
+    }
     const match = aiAnalysis.match(/\*\*(.+?)\*\*/);
     if (match) {
       const t = match[1];
       const d = aiAnalysis.replace(match[0], '').trim();
       return { title: t, description: d };
     }
-    return { title: '專屬印記', description: aiAnalysis };
-  }, [aiAnalysis, ending?.commentary]);
+    return { title: ending?.title || '專屬印記', description: aiAnalysis };
+  }, [aiAnalysis, ending, top5]);
 
   // 4. 計算 10 大軸心雷達圖資料
   const radarData = useMemo(() => {

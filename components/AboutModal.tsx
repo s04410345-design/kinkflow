@@ -142,10 +142,10 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 <button 
                   onClick={handleSend}
                   disabled={!message.trim() || isSending || sent}
-                  className={`px-5 py-2 rounded-lg font-bold text-xs transition-all shadow-sm ${
+                  className={`px-5 py-2 rounded-lg font-black text-xs transition-all shadow-sm ${
                     message.trim() && !isSending && !sent
-                      ? 'bg-[#E08A8A] text-white hover:bg-[#D47A7A] active:scale-95' 
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      ? 'bg-[#4A4238] text-white hover:bg-[#2C251E] active:scale-95' 
+                      : 'bg-[#E5DCD0] text-[#7A6B5D] border border-[#D1C6B4]/60 cursor-not-allowed'
                   }`}
                 >
                   {isSending ? '傳送中...' : sent ? '已送出' : '送出留言'}

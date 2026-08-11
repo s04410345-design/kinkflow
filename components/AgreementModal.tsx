@@ -142,10 +142,10 @@ export default function AgreementModal({ onAgree }: { onAgree: () => void }) {
                 <button 
                   onClick={handleSend}
                   disabled={!message.trim() || isSending || sent}
-                  className={`px-5 py-2 rounded-lg font-bold transition-all shadow-sm ${
+                  className={`px-5 py-2 rounded-lg font-black transition-all shadow-sm ${
                     message.trim() && !isSending && !sent
-                      ? 'bg-[#E08A8A] text-white hover:bg-[#D47A7A] active:scale-95' 
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      ? 'bg-[#4A4238] text-white hover:bg-[#2C251E] active:scale-95' 
+                      : 'bg-[#E5DCD0] text-[#7A6B5D] border border-[#D1C6B4]/60 cursor-not-allowed'
                   }`}
                 >
                   {isSending ? '傳送中...' : sent ? '已送出' : '送出留言'}
@@ -165,17 +165,17 @@ export default function AgreementModal({ onAgree }: { onAgree: () => void }) {
         <div className="p-6 bg-[#FDFBF7] border-t border-[#E8C5C8]/30 flex flex-col sm:flex-row justify-end gap-3">
           <button 
             onClick={() => window.location.href = 'https://google.com'}
-            className="px-6 py-2.5 rounded-xl border border-[#4A4238]/20 text-[#4A4238] font-medium hover:bg-[#4A4238]/5 transition-colors"
+            className="px-6 py-2.5 rounded-xl border-2 border-[#4A4238]/40 bg-[#F4EFE6] text-[#1A1612] font-black hover:bg-[#E8C5C8] hover:text-[#7F1D1D] transition-all shadow-xs"
           >
             我未滿 18 歲 / 拒絕
           </button>
           <button 
             onClick={handleAccept}
             disabled={!hasScrolledToBottom}
-            className={`px-6 py-2.5 rounded-xl font-medium transition-all ${
+            className={`px-6 py-2.5 rounded-xl font-black transition-all ${
               hasScrolledToBottom 
-              ? 'bg-[#E08A8A] text-white hover:bg-[#D47A7A] shadow-md shadow-[#E08A8A]/20' 
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              ? 'bg-[#7F1D1D] text-white hover:bg-[#991B1B] shadow-md shadow-[#7F1D1D]/20 active:scale-95' 
+              : 'bg-[#E5DCD0] text-[#7A6B5D] border border-[#D1C6B4]/60 cursor-not-allowed'
             }`}
           >
             {hasScrolledToBottom ? '我已年滿 18 歲且同意遵守規則' : '請先閱讀完畢 (向下滑動)'}
