@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { userId, targetName, bio, editAvatarUrl, editCoverUrl } = body;
+    const { userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole } = body;
 
     if (!targetName) {
       return NextResponse.json({ error: 'Missing targetName' }, { status: 400 });
@@ -45,29 +45,27 @@ export async function POST(req: Request) {
       global: { headers: { apikey: keyToUse, Authorization: `Bearer ${keyToUse}` } }
     });
     
-    // 1. Update profiles table (僅對有 userId 的登入用戶，profiles 表有 username, bio, avatar_url)
+    // 1. Update profiles table (包含 gender, bdsm_role)
     if (userId) {
       const { error: profileError } = await supabase.from('profiles').upsert(
-        { id: userId, username: targetName, bio, avatar_url: editAvatarUrl }, 
+        { id: userId, username: targetName, bio, avatar_url: editAvatarUrl, gender, bdsm_role: bdsmRole }, 
         { onConflict: 'id' }
       );
       if (profileError) {
         console.error('[updateProfile] profiles upsert error:', profileError);
-        return NextResponse.json({ 
-          error: profileError.message, 
-          debug_info: `使用的 Key 角色為: ${decodedRole}。`
-        }, { status: 500 });
       }
     }
     
-    // 2. 將 bio/avatar/cover 存入 quiz_content（訪客和登入用戶都適用）
+    // 2. 將 bio/avatar/cover/gender/bdsmRole 存入 quiz_content
     const cleanTargetName = targetName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
     const { data: qData } = await supabase.from('quiz_content').select('content').eq('key_name', `user_${cleanTargetName}`).maybeSingle();
     const newContent = { 
       ...(qData?.content || {}), 
       coverUrl: editCoverUrl, 
       bio, 
-      avatarUrl: editAvatarUrl 
+      avatarUrl: editAvatarUrl,
+      gender,
+      bdsmRole
     };
     const { error: quizError } = await supabase.from('quiz_content').upsert(
       { key_name: `user_${cleanTargetName}`, content: newContent }, 

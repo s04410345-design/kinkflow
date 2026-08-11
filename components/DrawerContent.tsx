@@ -744,10 +744,27 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
       {((node.level > 0 && nodeTab === 'chat') || (node.level === 0 && (lobbyTab === 'chat' || lobbyTab === 'board'))) && (
         <div className="shrink-0 p-4 bg-white border-t border-[#D1C6B4]/20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] animate-slide-up">
           <form onSubmit={(e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); const form = e.currentTarget; const input = form.elements.namedItem('msg') as HTMLTextAreaElement; const v = input.value.trim(); if(v){ addPost(v); input.value=''; input.style.height = 'auto'; } }} className="flex gap-2 items-end">
+            <button 
+              type="button" 
+              onClick={() => {
+                const imgUrl = prompt("請輸入欲夾帶的圖片網址 (Image URL)：");
+                if (imgUrl && imgUrl.trim()) {
+                  const form = document.querySelector('form textarea[name="msg"]') as HTMLTextAreaElement;
+                  if (form) {
+                    form.value = (form.value ? form.value + '\n' : '') + `![圖片](${imgUrl.trim()})`;
+                    form.focus();
+                  }
+                }
+              }}
+              className="bg-[#FDFBF7] border border-[#D1C6B4]/60 h-[40px] text-[#4A4238] font-bold px-3 rounded-xl text-xs hover:bg-[#E8C5C8]/20 transition-all shrink-0 flex items-center gap-1 shadow-xs"
+              title="插入圖片"
+            >
+              📷 圖片
+            </button>
             <textarea 
               name="msg" 
               rows={1}
-              placeholder={node.level===0 ? '發言...' : '發表避雷或心得...'} 
+              placeholder={node.level===0 ? '發言...' : '發表避雷、心得或夾帶圖片...'} 
               className="flex-1 bg-[#FDFBF7] border border-[#D1C6B4]/60 rounded-xl px-4 py-2 text-sm text-[#1A1612] font-medium focus:outline-none focus:border-[#C5D4B6] focus:ring-1 focus:ring-[#C5D4B6] transition-all resize-none min-h-[40px] max-h-[120px] scrollbar-thin"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

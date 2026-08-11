@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, PolarRadiusAxis } from 'recharts';
 import { Share2, RotateCcw } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import confetti from 'canvas-confetti';
 import type { QuizScores } from '../../lib/types';
 import { useQuizConfig } from '../QuizContext';
 
@@ -451,20 +452,52 @@ export function QuizResultPhase({ scores, aiAnalysis, isAiLoading, onRestart }: 
       </div>
       
       {/* 底部按鈕 (100% 絕對清晰對比) */}
-      <div className="flex flex-col sm:flex-row gap-4 pb-12">
+      <div className="flex flex-col sm:flex-row gap-3 pb-12">
         <button
           onClick={handleShare}
           disabled={isCapturing || isAiLoading}
-          className="flex-1 py-4 bg-[#D9B650] text-[#1A1612] rounded-2xl font-black tracking-widest hover:-translate-y-1 hover:shadow-lg transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-50 cursor-pointer"
+          className="flex-1 py-3.5 bg-[#D9B650] text-[#1A1612] rounded-2xl font-black tracking-widest hover:-translate-y-1 hover:shadow-lg transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-50 cursor-pointer text-sm"
         >
-          {isCapturing ? <RotateCcw className="w-5 h-5 animate-spin text-[#1A1612]" /> : <Share2 className="w-5 h-5 text-[#1A1612]" />}
-          <span>{labels.shareBtn || '分享我的印記報告'}</span>
+          {isCapturing ? <RotateCcw className="w-4 h-4 animate-spin text-[#1A1612]" /> : <Share2 className="w-4 h-4 text-[#1A1612]" />}
+          <span>{labels.shareBtn || '分享印記報告'}</span>
         </button>
+
+        <button
+          onClick={async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            btn.innerText = '💾 雲端儲存中...';
+            try {
+              const uName = typeof window !== 'undefined' ? (window.localStorage.getItem('kinkflow_user') || '訪客') : '訪客';
+              const top1Name = top5[0]?.name || '主宰';
+              await fetch('/api/saveQuizResult', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  userName: uName,
+                  scores,
+                  topTrait: top1Name,
+                  aiAnalysis: aiDesc
+                })
+              });
+              confetti({ particleCount: 50, spread: 60, colors: ['#D9B650', '#E08A8A'] });
+              btn.innerText = '✓ 已儲存至個人名片';
+              btn.className = 'flex-1 py-3.5 bg-[#4A4238] text-white rounded-2xl font-black text-sm cursor-default shadow-md';
+            } catch (err) {
+              btn.disabled = false;
+              btn.innerText = '❌ 儲存失敗';
+            }
+          }}
+          className="flex-1 py-3.5 bg-[#E08A8A] text-white rounded-2xl font-black tracking-widest hover:-translate-y-1 hover:shadow-lg transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer text-sm"
+        >
+          <span>💾 存至個人名片</span>
+        </button>
+
         <button
           onClick={onRestart}
-          className="flex-1 flex items-center justify-center gap-2 py-4 bg-[#1A1612] text-[#FDFBF7] font-black rounded-2xl border-2 border-[#1A1612] hover:-translate-y-1 hover:shadow-lg transition-all tracking-widest shadow-md cursor-pointer"
+          className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#1A1612] text-[#FDFBF7] font-black rounded-2xl border-2 border-[#1A1612] hover:-translate-y-1 hover:shadow-lg transition-all tracking-widest shadow-md cursor-pointer text-sm"
         >
-          <RotateCcw className="w-5 h-5 text-[#FDFBF7]" />
+          <RotateCcw className="w-4 h-4 text-[#FDFBF7]" />
           <span>{labels.restartBtn || '重新探索'}</span>
         </button>
       </div>

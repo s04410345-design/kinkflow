@@ -49,6 +49,8 @@ export default function ProfileModal({
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [editCoverUrl, setEditCoverUrl] = useState('');
   const [editUserName, setEditUserName] = useState('');
+  const [gender, setGender] = useState('secret');
+  const [bdsmRole, setBdsmRole] = useState('Switch');
   const { nodesData } = useSupabaseSync();
   const { traits, axes } = useQuizConfig();
 
@@ -264,7 +266,7 @@ export default function ProfileModal({
       const updateRes = await fetch('/api/updateProfile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl })
+        body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole })
       });
       if (!updateRes.ok) {
         const errorText = await updateRes.text();
@@ -393,31 +395,87 @@ export default function ProfileModal({
                       </div>
                     </div>
                     
-                    {/* Bio */}
-                    <div className="mt-2">
-                      {isEditingBio ? (
-                        <div className="space-y-3">
-                          <textarea
-                            value={bio}
-                            onChange={(e) => setBio(e.target.value)}
-                            className="w-full p-4 rounded-xl border border-[#D1C6B4] bg-white/50 focus:bg-white dark:bg-black/20 dark:border-[#4A4238] dark:bg-white/5 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-[#E8C5C8]/50 resize-none h-24"
-                            placeholder="寫些什麼來介紹自己吧..."
-                          />
-                          <div className="flex gap-2 justify-end">
-                            <button onClick={() => { setIsEditingBio(false); setBio((profile as any)?.bio || ''); }} className="px-4 py-2 text-[#4A4238]/60 dark:text-[#E5DCD0]/60 dark:text-[#E5DCD0]/60 font-bold hover:bg-black/5 rounded-xl transition-colors">
-                              取消
-                            </button>
-                            <button onClick={handleSaveBio} className="px-6 py-2 bg-[#4A4238] text-white rounded-xl font-bold hover:bg-[#5a5248] transition-all shadow-sm flex items-center gap-2">
-                              💾 儲存
-                            </button>
+                  {/* Bio & Identity Tags */}
+                  <div className="mt-3">
+                    {isEditingBio ? (
+                      <div className="space-y-3 bg-white/40 dark:bg-black/30 p-4 rounded-2xl border border-[#D1C6B4]/40">
+                        <div>
+                          <label className="text-xs font-black text-[#1A1612] dark:text-[#E5DCD0] mb-1.5 block">🚻 性別 / 性向標籤：</label>
+                          <div className="flex gap-2 flex-wrap">
+                            {[
+                              { id: 'male', label: '♂️ 男性' },
+                              { id: 'female', label: '♀️ 女性' },
+                              { id: 'nonbinary', label: '⚧️ 非二元/跨性別' },
+                              { id: 'secret', label: '🔒 不透漏' }
+                            ].map(g => (
+                              <button
+                                key={g.id}
+                                type="button"
+                                onClick={() => setGender(g.id)}
+                                className={`px-3 py-1 rounded-full text-xs font-black transition-all border ${gender === g.id ? 'bg-[#1A1612] text-white border-[#1A1612] shadow-xs' : 'bg-white text-[#4A4238] border-[#D1C6B4]/60'}`}
+                              >
+                                {g.label}
+                              </button>
+                            ))}
                           </div>
                         </div>
-                      ) : (
+
+                        <div>
+                          <label className="text-xs font-black text-[#1A1612] dark:text-[#E5DCD0] mb-1.5 block">⚡ BDSM 屬性身份：</label>
+                          <div className="flex gap-2 flex-wrap">
+                            {[
+                              { id: 'S', label: '👑 S / 支配者' },
+                              { id: 'D', label: '♟️ D / 領導者' },
+                              { id: 'Sub', label: '🧎 Sub / 臣服者' },
+                              { id: 'Maso', label: '🥀 M / 承受者' },
+                              { id: 'Switch', label: '☯️ Switch / 雙向' },
+                              { id: 'Observer', label: '👁️ Observer / 觀測' }
+                            ].map(r => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => setBdsmRole(r.id)}
+                                className={`px-3 py-1 rounded-full text-xs font-black transition-all border ${bdsmRole === r.id ? 'bg-[#D9B650] text-[#1A1612] border-[#D9B650] shadow-xs' : 'bg-white text-[#4A4238] border-[#D1C6B4]/60'}`}
+                              >
+                                {r.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <textarea
+                          value={bio}
+                          onChange={(e) => setBio(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-[#D1C6B4] bg-white/70 focus:bg-white dark:bg-black/40 text-[#1A1612] dark:text-[#E5DCD0] font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#D9B650] resize-none h-24"
+                          placeholder="寫些什麼來介紹自己吧..."
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => { setIsEditingBio(false); setBio((profile as any)?.bio || ''); }} className="px-4 py-2 text-[#4A4238]/60 dark:text-[#E5DCD0]/60 font-bold hover:bg-black/5 rounded-xl transition-colors">
+                            取消
+                          </button>
+                          <button onClick={handleSaveBio} className="px-6 py-2 bg-[#4A4238] text-white rounded-xl font-bold hover:bg-[#5a5248] transition-all shadow-sm flex items-center gap-2">
+                            💾 儲存名片設定
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* 顯示身份標籤 */}
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="px-3 py-1 rounded-full text-xs font-black bg-[#1A1612] text-[#FDFBF7] shadow-xs border border-[#1A1612]">
+                            {gender === 'male' ? '♂️ 男性' : gender === 'female' ? '♀️ 女性' : gender === 'nonbinary' ? '⚧️ 非二元' : '🔒 不透漏'}
+                          </span>
+                          <span className="px-3 py-1 rounded-full text-xs font-black bg-[#D9B650] text-[#1A1612] shadow-xs border border-[#D9B650]">
+                            {bdsmRole === 'S' ? '👑 S / 支配者' : bdsmRole === 'D' ? '♟️ D / 領導者' : bdsmRole === 'Sub' ? '🧎 Sub / 臣服者' : bdsmRole === 'Maso' ? '🥀 M / 承受者' : bdsmRole === 'Switch' ? '☯️ Switch / 雙向' : '👁️ 觀測者'}
+                          </span>
+                        </div>
+
                         <p className={`whitespace-pre-wrap leading-relaxed font-bold text-sm sm:text-base ${isDarkStyle ? 'text-[#FDFBF7]' : 'text-[#1A1612]'}`}>
                           {bio || <span className="opacity-60 italic">尚未填寫個人簡介</span>}
                         </p>
-                      )}
-                    </div>
+                      </div>
+                    )}
+                  </div>
                   </div>
                 </div>
               );

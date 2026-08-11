@@ -125,6 +125,7 @@ export function Comment({ post, hideActions, hideReplies, nodeColor, allowReply,
   const [replyInput, setReplyInput] = useState('');
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [replyEmojiId, setReplyEmojiId] = useState<number | null>(null);
+  const [showLightboxImg, setShowLightboxImg] = useState<string | null>(null);
   const lastReplySubmitRef = useRef(0);
 
   // 計算留言保留時間
@@ -207,7 +208,23 @@ export function Comment({ post, hideActions, hideReplies, nodeColor, allowReply,
           </div>
         )}
       </div>
-      <p className={`text-sm font-bold ${textColorClass} mb-2 leading-relaxed whitespace-pre-wrap break-words break-all`}>{displayText}</p>
+      {/* 解析並渲染圖片附件 */}
+      {(() => {
+        const imgMatch = post.text.match(/!\[.*?\]\((https?:\/\/[^\s\)]+)\)/) || post.text.match(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp))/i);
+        const imageUrl = imgMatch ? imgMatch[1] : null;
+        if (!imageUrl) return null;
+
+        return (
+          <div className="my-2 max-w-sm rounded-xl overflow-hidden border border-[#D1C6B4]/40 shadow-sm cursor-zoom-in group relative" onClick={() => setShowLightboxImg(imageUrl)}>
+            <img src={imageUrl} alt="附加圖片" className="w-full max-h-56 object-cover group-hover:scale-102 transition-transform" />
+            <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-sm font-bold">📷 點擊放大觀看</div>
+          </div>
+        );
+      })()}
+
+      <p className={`text-sm font-bold ${textColorClass} mb-2 leading-relaxed whitespace-pre-wrap break-words break-all`}>
+        {displayText.replace(/!\[.*?\]\((https?:\/\/[^\s\)]+)\)/g, '').replace(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp))/gi, '').trim()}
+      </p>
       {isTooLong && (
         <button onClick={() => setIsExpanded(!isExpanded)} className="text-xs text-[#E08A8A] hover:text-[#D47A7A] font-bold mb-3 block">
           {isExpanded ? '收起 ▲' : '繼續閱讀 ▼'}
@@ -336,6 +353,27 @@ export function Comment({ post, hideActions, hideReplies, nodeColor, allowReply,
       )}
       {/* 個人檔案彈窗 */}
       {showProfile && <ProfileModal userName={showProfile} onClose={() => setShowProfile(null)} />}
+
+      {/* 圖片大圖 Lightbox */}
+      {showLightboxImg && (
+        <div 
+          onClick={() => setShowLightboxImg(null)}
+          className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out animate-fade-in"
+        >
+          <button 
+            onClick={() => setShowLightboxImg(null)}
+            className="absolute top-6 right-6 text-white bg-white/20 hover:bg-white/40 w-12 h-12 rounded-full font-bold text-2xl flex items-center justify-center transition-colors"
+          >
+            ✕
+          </button>
+          <img 
+            src={showLightboxImg} 
+            alt="大圖預覽" 
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl transition-transform duration-300 hover:scale-105"
+            crossOrigin="anonymous"
+          />
+        </div>
+      )}
     </div>
   );
 }
