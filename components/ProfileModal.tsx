@@ -89,20 +89,30 @@ export default function ProfileModal({
         let fetchedBio = '';
         let fetchedAvatarUrl = '';
         let fetchedCoverUrl = '';
+        let fetchedGender = 'secret';
+        let fetchedBdsmRole = 'Switch';
         let joinedAt = '';
 
         if (profileData) {
           fetchedBio = profileData.bio || '';
           fetchedAvatarUrl = profileData.avatar_url || '';
+          // 從 profiles 表讀取 gender 和 bdsm_role
+          if (profileData.gender) fetchedGender = profileData.gender;
+          if (profileData.bdsm_role) fetchedBdsmRole = profileData.bdsm_role;
         }
 
         if (!fetchedBio && quizData?.content?.bio) fetchedBio = quizData.content.bio;
         if (!fetchedAvatarUrl && quizData?.content?.avatarUrl) fetchedAvatarUrl = quizData.content.avatarUrl;
         if (!fetchedCoverUrl && quizData?.content?.coverUrl) fetchedCoverUrl = quizData.content.coverUrl;
+        // 備用從 quiz_content 讀取 gender/bdsmRole
+        if (fetchedGender === 'secret' && quizData?.content?.gender) fetchedGender = quizData.content.gender;
+        if (fetchedBdsmRole === 'Switch' && quizData?.content?.bdsmRole) fetchedBdsmRole = quizData.content.bdsmRole;
 
         setBio(fetchedBio);
         setEditAvatarUrl(fetchedAvatarUrl);
         setEditCoverUrl(fetchedCoverUrl);
+        setGender(fetchedGender);
+        setBdsmRole(fetchedBdsmRole);
         
         // 優先從 profiles 的 created_at 獲取加入時間，格式化為 zh-TW
         const rawDate = profileData?.created_at || quizData?.content?.joinedAt;
