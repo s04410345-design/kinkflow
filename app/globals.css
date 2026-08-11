@@ -1,0 +1,261 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fdfbf7;
+  --foreground: #4a4238;
+  --vote-text: #1A1612;       /* 預設：深棕色（亮色主題） */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* 全站預設：🍵 莫蘭迪抹茶和風 (高對比度濃郁深棕色與標緻墨印) */
+body {
+  background-color: #E6DFD5;
+  background-image: 
+    radial-gradient(circle at 50% 50%, rgba(230, 223, 213, 0) 20%, rgba(120, 100, 80, 0.2) 100%),
+    url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 40 C 10 30, 30 30, 40 40 Z M0 0 C 10 10, 30 10, 40 0 Z' fill='none' stroke='rgba(74, 66, 56, 0.1)' stroke-width='1.5'/%3E%3C/svg%3E");
+  color: #362E25;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 16px;
+  --logo-filter: sepia(1) hue-rotate(5deg) saturate(2) brightness(0.6) drop-shadow(0 0 8px rgba(74, 66, 56, 0.2));
+  --logo-watermark-filter: sepia(0.5) saturate(1.2) brightness(0.7) drop-shadow(0 0 20px rgba(184,134,11,0.3));
+}
+
+/* 1. 🌸 櫻吹海浪和風 (櫻花 + 青海波浪紋) */
+html[data-theme="sakura"] body {
+  background-color: #FDF2F4;
+  background-image: 
+    radial-gradient(circle at 50% 50%, rgba(253, 242, 244, 0) 20%, rgba(244, 114, 182, 0.2) 100%),
+    url("data:image/svg+xml,%3Csvg width='60' height='30' viewBox='0 0 60 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 30 Q 15 10 30 30 Q 45 10 60 30' fill='none' stroke='rgba(244, 114, 182, 0.15)' stroke-width='2'/%3E%3Cpath d='M0 15 Q 15 0 30 15 Q 45 0 60 15' fill='none' stroke='rgba(244, 114, 182, 0.1)' stroke-width='1.5'/%3E%3C/svg%3E");
+  color: #5C0B2E;
+  --logo-filter: sepia(1) hue-rotate(300deg) saturate(3) brightness(0.7) drop-shadow(0 0 10px rgba(131, 24, 67, 0.25));
+  --logo-watermark-filter: sepia(1) hue-rotate(300deg) saturate(2) brightness(0.8) drop-shadow(0 0 18px rgba(131,24,67,0.3));
+}
+
+/* 2. 🌊 浮世繪青浪 (經典魚鱗青海波紋) */
+html[data-theme="ukiyo"] body {
+  background-color: #DCE5F0;
+  background-image: 
+    radial-gradient(circle at 50% 50%, rgba(220, 229, 240, 0) 20%, rgba(30, 58, 138, 0.25) 100%),
+    url("data:image/svg+xml,%3Csvg width='40' height='20' viewBox='0 0 40 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20 A 20 20 0 0 1 40 20 M-20 20 A 20 20 0 0 1 20 20 M20 20 A 20 20 0 0 1 60 20' fill='none' stroke='rgba(30, 58, 138, 0.15)' stroke-width='1.5'/%3E%3C/svg%3E");
+  color: #0F296B;
+  --logo-filter: sepia(1) hue-rotate(190deg) saturate(3) brightness(0.6) drop-shadow(0 0 10px rgba(30, 58, 138, 0.3));
+  --logo-watermark-filter: sepia(1) hue-rotate(190deg) saturate(2) brightness(0.8) drop-shadow(0 0 18px rgba(30,58,138,0.35));
+}
+
+/* 3. 🌙 月映波濤柔黑 (柔和高質感夜藍月華 - 純白反光高對比) */
+html[data-theme="moonlight"] body {
+  background-color: #1E232A;
+  background-image: 
+    radial-gradient(circle at 50% 50%, rgba(30, 35, 42, 0) 20%, rgba(217, 182, 80, 0.25) 100%),
+    url("data:image/svg+xml,%3Csvg width='60' height='30' viewBox='0 0 60 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 30 Q 15 5 30 30 Q 45 5 60 30' fill='none' stroke='rgba(217, 182, 80, 0.15)' stroke-width='1.5'/%3E%3Ccircle cx='30' cy='15' r='8' fill='none' stroke='rgba(217, 182, 80, 0.1)' stroke-width='1'/%3E%3C/svg%3E");
+  color: #F8FAFC;
+  --logo-filter: brightness(0) invert(1) drop-shadow(0 0 20px rgba(255, 255, 255, 0.95));
+  --logo-watermark-filter: brightness(1.8) contrast(1.2) drop-shadow(0 0 30px rgba(217,182,80,0.6)) drop-shadow(0 0 10px rgba(255,255,255,0.3));
+  --vote-text: #1A1612;
+}
+
+/* 視窗 (Drawer Panel) 浮世繪主題適應 */
+html[data-theme="moonlight"] .drawer-panel,
+html[data-theme="moonlight"] .drawer-container {
+  background-color: #262B33 !important;
+  color: #F3F4F6 !important;
+  border-color: #3F4652 !important;
+}
+
+/* 視窗 (Drawer Panel) 主題適應 */
+html[data-theme="ukiyo"] .drawer-panel,
+html[data-theme="ukiyo"] .drawer-container {
+  background-color: #f1f5f9 !important;
+  color: #1e3a8a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="maple"] .drawer-panel,
+html[data-theme="maple"] .drawer-container {
+  background-color: #fdfbf7 !important;
+  color: #78350f !important;
+  border-color: #fde68a !important;
+}
+
+/* ================= 4 大主題文字對比度完美保證 (WCAG AAA) ================= */
+html[data-theme="sakura"] .drawer-panel,
+html[data-theme="sakura"] .drawer-container {
+  background-color: #FFF5F7 !important;
+  color: #4C0519 !important;
+  border-color: #FBCFE8 !important;
+}
+
+html[data-theme="ukiyo"] .drawer-panel,
+html[data-theme="ukiyo"] .drawer-container {
+  background-color: #F1F5F9 !important;
+  color: #0F172A !important;
+  border-color: #CBD5E1 !important;
+}
+
+html[data-theme="moonlight"] .drawer-panel,
+html[data-theme="moonlight"] .drawer-container,
+html[data-theme="moonlight"] .modal-content {
+  background-color: #1E232A !important;
+  color: #F8FAFC !important;
+  border-color: #3F4652 !important;
+}
+
+/* moonlight 主題：一般 button 強制白字，但投票按鈕 (.vote-btn) 與固定黑字按鈕 (.btn-dark-text) 自行管理 */
+html[data-theme="moonlight"] button:not(.vote-btn):not(.btn-dark-text),
+html[data-theme="moonlight"] label {
+  color: #F8FAFC;
+}
+
+/* moonlight 主題：輸入框需要深層字 + 淡色底色，不能用白字（白字+白底 → 看不見） */
+html[data-theme="moonlight"] input,
+html[data-theme="moonlight"] textarea {
+  color: #1A1612 !important;          /* 深棕字強制可見 */
+  background-color: #FDFBF7 !important; /* 保持淡色底 */
+  caret-color: #1A1612 !important;    /* 游標顯示 */
+}
+
+/* 投票按鈕與固定黑字按鈕：無論任何主題均強制黑字 #1A1612，防止深色模式反白 */
+.vote-btn, 
+.vote-btn *, 
+.btn-dark-text, 
+.btn-dark-text * {
+  color: #1A1612 !important;
+  caret-color: #1A1612;
+}
+
+/* ================= 動畫 Keyframes ================= */
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tailwind v4 @theme inline 不會讀取 tailwind.config.ts 的 extend，
+   所以在此以 @utility 方式手動註冊動畫 class */
+@utility animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@utility animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* ================= 專業感 UI 擴充 (Phase 4) ================= */
+@utility glass {
+  background: rgba(253, 251, 247, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(232, 197, 200, 0.4);
+  box-shadow: 0 8px 32px rgba(74, 66, 56, 0.05);
+}
+
+@utility glass-dark {
+  background: rgba(74, 66, 56, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(209, 198, 180, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+@utility metallic-text {
+  background: linear-gradient(135deg, #D9B650 0%, #E8C5C8 50%, #C5D4B6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 全主題 WCAG AAA 高對比度保證 */
+html[data-theme="moonlight"] .modal-content,
+html[data-theme="moonlight"] .drawer-panel,
+html[data-theme="moonlight"] .bg-white {
+  color: #1A1612 !important;
+}
+
+html[data-theme="moonlight"] p,
+html[data-theme="moonlight"] span,
+html[data-theme="moonlight"] h1,
+html[data-theme="moonlight"] h2,
+html[data-theme="moonlight"] h3 {
+  opacity: 1 !important;
+}
+
+/* 按鈕文字清晰度強制覆蓋 */
+button.bg-white {
+  color: #1A1612 !important;
+  font-weight: 900 !important;
+}
+
+/* ================= 隱藏捲軸 ================= */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ================= 額外動畫 ================= */
+@keyframes slideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@utility animate-slide-down {
+  animation: slideDown 0.2s ease-out;
+}
+
+@utility animate-shimmer {
+  background: linear-gradient(90deg, #f0ece4 25%, #fdfbf7 50%, #f0ece4 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ================= 客製捲軸 ================= */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(209, 198, 180, 0.5) transparent;
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(209, 198, 180, 0.5);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: rgba(209, 198, 180, 0.8);
+  }
+}

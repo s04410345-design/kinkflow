@@ -1,0 +1,53 @@
+{
+  "name": "kinkflow",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.110.2",
+    "axios": "^1.18.1",
+    "canvas-confetti": "^1.9.4",
+    "chart.js": "^4.5.1",
+    "cheerio": "^1.2.0",
+    "csv-writer": "^1.6.0",
+    "d3": "^7.9.0",
+    "duckduckgo-images-api": "^1.0.5",
+    "duckduckgo-search": "^1.0.7",
+    "framer-motion": "^12.42.2",
+    "html-to-image": "^1.11.13",
+    "html2canvas": "^1.4.1",
+    "images-scraper": "^7.0.0",
+    "lucide-react": "^1.25.0",
+    "next": "16.2.10",
+    "papaparse": "^5.5.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.10.0",
+    "remark-gfm": "^4.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@tailwindcss/typography": "^0.5.20",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/d3": "^7.4.3",
+    "@types/dotenv": "^6.1.1",
+    "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "puppeteer-core": "^25.5.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "deployTimestamp": "2026-08-08T02:32:00.000Z"
+}

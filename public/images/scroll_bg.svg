@@ -1,0 +1,62 @@
+<svg width="3000" height="2400" viewBox="0 0 3000 2400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Paper noise filter -->
+    <filter id="washi-noise">
+      <feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch" />
+      <feColorMatrix type="matrix" values="1 0 0 0 0, 0 1 0 0 0, 0 0 1 0 0, 0 0 0 0.1 0" />
+      <feComposite operator="in" in2="SourceGraphic" result="noise" />
+      <feBlend mode="multiply" in="noise" in2="SourceGraphic" />
+    </filter>
+    
+    <!-- Silk texture filter -->
+    <filter id="silk-noise">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05 0.8" numOctaves="2" result="lines" />
+      <feColorMatrix type="matrix" values="1 0 0 0 0, 0 1 0 0 0, 0 0 1 0 0, 0 0 0 0.2 0" />
+      <feComposite operator="in" in2="SourceGraphic" result="noise" />
+      <feBlend mode="multiply" in="noise" in2="SourceGraphic" />
+    </filter>
+
+    <pattern id="gold-pattern" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M0,50 L50,0 L100,50 L50,100 Z" fill="none" stroke="rgba(217, 182, 80, 0.4)" stroke-width="2"/>
+      <circle cx="50" cy="50" r="10" fill="none" stroke="rgba(217, 182, 80, 0.2)" stroke-width="2"/>
+    </pattern>
+
+    <linearGradient id="wood-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2a1e12"/>
+      <stop offset="30%" stop-color="#4a3622"/>
+      <stop offset="70%" stop-color="#3d2c1c"/>
+      <stop offset="100%" stop-color="#1e150d"/>
+    </linearGradient>
+
+    <!-- Drop shadow for the inner paper -->
+    <filter id="inner-shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="10" stdDeviation="15" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <!-- Base background (shadow) -->
+  <rect x="50" y="50" width="2900" height="2300" fill="rgba(0,0,0,0.4)" filter="blur(30px)" />
+
+  <!-- Outer Silk Fabric (Heri) -->
+  <rect x="100" y="50" width="2800" height="2300" fill="#2d3f35" filter="url(#silk-noise)"/>
+  <rect x="100" y="50" width="2800" height="2300" fill="url(#gold-pattern)"/>
+
+  <!-- Left and Right wooden rollers -->
+  <!-- Left roller -->
+  <rect x="60" y="30" width="60" height="2340" rx="30" fill="url(#wood-gradient)"/>
+  <ellipse cx="90" cy="30" rx="30" ry="15" fill="#5c452e"/>
+  <ellipse cx="90" cy="2370" rx="30" ry="15" fill="#1e150d"/>
+  
+  <!-- Right roller -->
+  <rect x="2880" y="30" width="60" height="2340" rx="30" fill="url(#wood-gradient)"/>
+  <ellipse cx="2910" cy="30" rx="30" ry="15" fill="#5c452e"/>
+  <ellipse cx="2910" cy="2370" rx="30" ry="15" fill="#1e150d"/>
+
+  <!-- Inner border (Ichimonji) -->
+  <rect x="200" y="100" width="2600" height="2200" fill="#d9b650" opacity="0.8"/>
+  
+  <!-- Inner Washi Paper (Honshi) -->
+  <rect x="220" y="120" width="2560" height="2160" fill="#f4efe6" filter="url(#washi-noise)"/>
+  <rect x="220" y="120" width="2560" height="2160" fill="none" stroke="#b09c80" stroke-width="4"/>
+
+</svg>
