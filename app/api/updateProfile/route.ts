@@ -1,84 +1,45 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { requireUser } from '@/lib/serverAuth';
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireUser(req);
+    if ('response' in auth) return auth.response;
+
     const body = await req.json();
-    const { userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole } = body;
-
-    if (!targetName) {
-      return NextResponse.json({ error: 'Missing targetName' }, { status: 400 });
+    const requestedUserId = typeof body.userId === 'string' ? body.userId : auth.user.id;
+    if (requestedUserId !== auth.user.id) {
+      return NextResponse.json({ error: 'You can only update your own profile' }, { status: 403 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const targetName = typeof body.targetName === 'string' ? body.targetName.trim() : '';
+    const bio = typeof body.bio === 'string' ? body.bio.slice(0, 2000) : '';
+    const gender = typeof body.gender === 'string' ? body.gender.slice(0, 40) : null;
+    const bdsmRole = typeof body.bdsmRole === 'string' ? body.bdsmRole.slice(0, 80) : null;
+    const editAvatarUrl = typeof body.editAvatarUrl === 'string' ? body.editAvatarUrl.slice(0, 2048) : null;
+    const editCoverUrl = typeof body.editCoverUrl === 'string' ? body.editCoverUrl.slice(0, 2048) : null;
 
-    if (!supabaseUrl) {
-      return NextResponse.json({ error: 'Missing SUPABASE_URL' }, { status: 500 });
-    }
-    
-    // 優先使用 service role key，強制繞過 RLS
-    const keyToUse = supabaseServiceKey || supabaseAnonKey;
-    const usingServiceKey = !!supabaseServiceKey;
-    
-    // Debug: Decode JWT to check if it's REALLY a service role key
-    let decodedRole = 'unknown';
-    try {
-      if (keyToUse) {
-        const parts = keyToUse.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-          decodedRole = payload.role;
-        }
-      }
-    } catch(e) {}
-    
-    console.log(`[updateProfile] Using ${usingServiceKey ? 'SERVICE ROLE' : 'ANON'} key. Decoded role: ${decodedRole}. userId=${userId}, targetName=${targetName}`);
-    
-    if (!keyToUse) {
-      return NextResponse.json({ error: 'No Supabase key available' }, { status: 500 });
+    if (!targetName || targetName.length > 80) {
+      return NextResponse.json({ error: 'Name must be between 1 and 80 characters' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, keyToUse, {
-      auth: { persistSession: false },
-      global: { headers: { apikey: keyToUse, Authorization: `Bearer ${keyToUse}` } }
-    });
-    
-    // 1. Update profiles table (包含 gender, bdsm_role)
-    if (userId) {
-      const { error: profileError } = await supabase.from('profiles').upsert(
-        { id: userId, username: targetName, bio, avatar_url: editAvatarUrl, gender, bdsm_role: bdsmRole }, 
-        { onConflict: 'id' }
-      );
-      if (profileError) {
-        console.error('[updateProfile] profiles upsert error:', profileError);
-      }
-    }
-    
-    // 2. 將 bio/avatar/cover/gender/bdsmRole 存入 quiz_content
-    const cleanTargetName = targetName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-    const { data: qData } = await supabase.from('quiz_content').select('content').eq('key_name', `user_${cleanTargetName}`).maybeSingle();
-    const newContent = { 
-      ...(qData?.content || {}), 
-      coverUrl: editCoverUrl, 
-      bio, 
-      avatarUrl: editAvatarUrl,
+    const { error } = await auth.client.from('profiles').update({
+      username: targetName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim(),
+      bio,
+      avatar_url: editAvatarUrl,
+      cover_url: editCoverUrl,
       gender,
-      bdsmRole
-    };
-    const { error: quizError } = await supabase.from('quiz_content').upsert(
-      { key_name: `user_${cleanTargetName}`, content: newContent }, 
-      { onConflict: 'key_name' }
-    );
-    if (quizError) {
-      console.error('[updateProfile] quiz_content upsert error:', quizError);
-      return NextResponse.json({ error: quizError.message }, { status: 500 });
+      bdsm_role: bdsmRole,
+    }).eq('id', auth.user.id);
+
+    if (error) {
+      console.error('[updateProfile] profile update failed:', error.message);
+      return NextResponse.json({ error: 'Unable to update profile' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, usedServiceKey: usingServiceKey });
-  } catch (err: any) {
-    console.error('updateProfile API error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[updateProfile] unexpected error:', error);
+    return NextResponse.json({ error: 'Unable to update profile' }, { status: 500 });
   }
 }

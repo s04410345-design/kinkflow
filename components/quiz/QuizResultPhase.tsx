@@ -5,6 +5,7 @@ import html2canvas from 'html2canvas';
 import confetti from 'canvas-confetti';
 import type { QuizScores } from '../../lib/types';
 import { useQuizConfig } from '../QuizContext';
+import { getAuthHeaders } from '../../lib/authHeaders';
 
 interface QuizResultPhaseProps {
   scores: QuizScores;
@@ -472,9 +473,8 @@ export function QuizResultPhase({ scores, aiAnalysis, isAiLoading, onRestart }: 
               const top1Name = top5[0]?.name || '主宰';
               await fetch('/api/saveQuizResult', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: await getAuthHeaders(),
                 body: JSON.stringify({
-                  userName: uName,
                   scores,
                   topTrait: top1Name,
                   aiAnalysis: aiDesc

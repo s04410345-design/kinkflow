@@ -100,7 +100,7 @@ export default function AdminDashboard() {
   const [statsLoading, setStatsLoading] = useState(false);
 
   // 管理員設定
-  const [adminUsers, setAdminUsers] = useState<{email: string, level: number, created_at: string}[]>([]);
+  const [adminUsers, setAdminUsers] = useState<{user_id: string, role_level: number, granted_by?: string | null, created_at: string}[]>([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminLevel, setNewAdminLevel] = useState(2);
   const [adminLoading, setAdminLoading] = useState(false);
@@ -340,7 +340,7 @@ export default function AdminDashboard() {
 
   const fetchAdmins = async () => {
     setAdminLoading(true);
-    const { data } = await supabase.from('admin_roles').select('*').order('level', { ascending: true });
+    const { data } = await supabase.from('admin_roles').select('user_id, role_level, granted_by, created_at').order('role_level', { ascending: true });
     if (data) setAdminUsers(data);
     setAdminLoading(false);
   };
@@ -350,7 +350,8 @@ export default function AdminDashboard() {
     if (!newAdminEmail.trim()) return;
     setAdminLoading(true);
     try {
-      const { error } = await supabase.from('admin_roles').upsert({ email: newAdminEmail.trim(), level: newAdminLevel });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const { error } = await supabase.from('admin_roles').upsert({ user_id: newAdminEmail.trim(), role_level: newAdminLevel, granted_by: sessionData.session?.user.id || null });
       if (error) throw error;
       setNewAdminEmail('');
       setNewAdminLevel(2);
@@ -371,7 +372,7 @@ export default function AdminDashboard() {
     if (!confirm(`確定要移除 ${email} 的管理員權限嗎？`)) return;
     setAdminLoading(true);
     try {
-      const { error } = await supabase.from('admin_roles').delete().eq('email', email);
+      const { error } = await supabase.from('admin_roles').delete().eq('user_id', email);
       if (error) throw error;
       fetchAdmins();
       setMessage('✅ 管理員權限已移除');
@@ -401,15 +402,15 @@ export default function AdminDashboard() {
   const checkAdminRole = async (user: any) => {
     if (!user || !user.email) return;
     try {
-      const { data, error } = await supabase.from('admin_roles').select('level').eq('email', user.email).single();
+      const { data, error } = await supabase.from('admin_roles').select('role_level').eq('user_id', user.id).single();
       if (error || !data) {
         setAuthError('❌ 此帳號無管理員權限');
         await supabase.auth.signOut();
         setIsAuth(false);
         setAdminLevel(null);
       } else {
-        setAdminEmail(user.email);
-        setAdminLevel(data.level);
+        setAdminEmail(user.id);
+        setAdminLevel(data.role_level);
         setIsAuth(true);
         setAuthError('');
       }
@@ -827,8 +828,8 @@ export default function AdminDashboard() {
             
             <form onSubmit={handleAddAdmin} className="flex flex-col sm:flex-row gap-4 items-end mb-8 bg-[#FDFBF7] p-4 rounded-xl border border-[#D1C6B4]/30">
               <div className="flex-1 w-full">
-                <label className="block text-xs font-bold mb-1">Email</label>
-                <input type="email" required value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)} placeholder="新管理員 Email" className="w-full px-4 py-2.5 rounded-xl border border-[#D1C6B4]/50 focus:border-[#C5D4B6] focus:ring-1 focus:ring-[#C5D4B6] outline-none text-sm bg-white" />
+                <label className="block text-xs font-bold mb-1">User ID（UUID）</label>
+                <input type="text" required value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)} placeholder="新管理員 User ID（UUID）" className="w-full px-4 py-2.5 rounded-xl border border-[#D1C6B4]/50 focus:border-[#C5D4B6] focus:ring-1 focus:ring-[#C5D4B6] outline-none text-sm bg-white" />
               </div>
               <div className="w-full sm:w-32 shrink-0">
                 <label className="block text-xs font-bold mb-1">權限等級</label>
@@ -858,17 +859,17 @@ export default function AdminDashboard() {
                   </thead>
                   <tbody className="divide-y divide-[#D1C6B4]/10">
                     {adminUsers.map(user => (
-                      <tr key={user.email} className="hover:bg-[#FDFBF7]">
-                        <td className="py-3 text-sm font-medium">{user.email} {user.email === adminEmail && <span className="text-[10px] bg-[#E8C5C8]/30 px-2 py-0.5 rounded-full ml-2">You</span>}</td>
+                      <tr key={user.user_id} className="hover:bg-[#FDFBF7]">
+                        <td className="py-3 text-sm font-medium">{user.user_id} {user.user_id === adminEmail && <span className="text-[10px] bg-[#E8C5C8]/30 px-2 py-0.5 rounded-full ml-2">You</span>}</td>
                         <td className="py-3">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${user.level === 1 ? 'bg-[#E8C5C8]/30 text-[#E08A8A]' : user.level === 2 ? 'bg-[#C5D4B6]/30 text-[#4A7238]' : 'bg-[#B6C4D4]/30 text-[#4A4238]'}`}>
-                            Level {user.level}
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${user.role_level === 1 ? 'bg-[#E8C5C8]/30 text-[#E08A8A]' : user.role_level === 2 ? 'bg-[#C5D4B6]/30 text-[#4A7238]' : 'bg-[#B6C4D4]/30 text-[#4A4238]'}`}>
+                            Level {user.role_level}
                           </span>
                         </td>
                         <td className="py-3 text-xs text-[#4A4238]/50">{new Date(user.created_at).toLocaleString('zh-TW')}</td>
                         <td className="py-3 text-right">
-                          {user.email !== adminEmail && (
-                            <button onClick={() => handleRemoveAdmin(user.email)} disabled={adminLoading} className="text-xs text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-xl transition-colors border border-red-100 disabled:opacity-50">
+                          {user.user_id !== adminEmail && (
+                            <button onClick={() => handleRemoveAdmin(user.user_id)} disabled={adminLoading} className="text-xs text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-xl transition-colors border border-red-100 disabled:opacity-50">
                               移除權限
                             </button>
                           )}
