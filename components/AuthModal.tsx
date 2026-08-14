@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'login' }: { onClose: () => void, onLoginSuccess?: (user: unknown) => void, defaultMode?: 'login' | 'register' | 'reset_password' }) {
+export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'login', redirectPath }: { onClose: () => void, onLoginSuccess?: (user: unknown) => void, defaultMode?: 'login' | 'register' | 'reset_password', redirectPath?: string }) {
   const [isLogin, setIsLogin] = useState(defaultMode === 'login');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(defaultMode === 'reset_password');
@@ -10,6 +10,11 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const getRedirectUrl = () => {
+    if (redirectPath?.startsWith('http')) return redirectPath;
+    return `${window.location.origin}${redirectPath ?? ''}`;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +45,7 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
 
       if (isForgotPassword) {
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: window.location.origin,
+          redirectTo: getRedirectUrl(),
         });
         if (err) throw err;
         setError('✅ 密碼重置信件已發送！請去信箱點擊連結。');
@@ -98,7 +103,7 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
       const { error: err } = await supabase.auth.signInWithOAuth({
         provider: provider === 'twitter' ? 'x' : provider,
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: getRedirectUrl(),
         }
       });
       if (err) throw err;

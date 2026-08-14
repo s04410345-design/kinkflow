@@ -747,7 +747,7 @@ export default function AdminDashboard() {
           </button>
           {authError && <p className="text-[#E08A8A] text-sm mt-4 font-bold">{authError}</p>}
         </div>
-        {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} defaultMode="login" />}
+        {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} onLoginSuccess={checkAdminRole} redirectPath="/admin" defaultMode="login" />}
       </div>
     );
   }
