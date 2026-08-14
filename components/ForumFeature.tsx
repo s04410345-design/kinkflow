@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DiscussionPost, GraphNode } from '@/lib/types';
 import { extractDiscussionContent, formatDiscussionDate, sortDiscussionPosts } from '@/lib/contentModel';
+import { supabase } from '@/lib/supabase';
 
 type ForumFeatureProps = {
   nodesData: GraphNode[];
@@ -30,6 +31,23 @@ function toForumItems(nodesData: GraphNode[], discussions: Record<string, Discus
   });
 }
 
+type LiveForumPost = {
+  id: string;
+  title: string;
+  body_text: string;
+  created_at: string;
+  author_id: string;
+  topic_id?: string | null;
+  forum_topics?: { topic_node_links?: { node_id: string }[] }[];
+  forum_post_media?: { media_assets?: { storage_path: string; media_type: string }[] }[];
+};
+
+function storageUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  const { data } = supabase.storage.from('quiz-images').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 function DiscussionMedia({ post }: { post: DiscussionPost }) {
   const content = extractDiscussionContent(post.text, post.title, post.body, post.media);
   if (!content.media?.length) return null;
@@ -45,9 +63,59 @@ function DiscussionMedia({ post }: { post: DiscussionPost }) {
 
 export default function ForumFeature({ nodesData, discussions, isMember = false }: ForumFeatureProps) {
   const [activeNodeId, setActiveNodeId] = useState('all');
+  const [livePosts, setLivePosts] = useState<ForumItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [sortMode, setSortMode] = useState<'hot' | 'latest'>('hot');
   const [selectedPostId, setSelectedPostId] = useState<string | number | null>(null);
-  const items = useMemo(() => toForumItems(nodesData, discussions), [nodesData, discussions]);
+  const nodes = useMemo(() => new Map(nodesData.map((node) => [node.id, node])), [nodesData]);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('forum_posts')
+        .select('id,title,body_text,created_at,author_id,topic_id,forum_topics(topic_node_links(node_id)),forum_post_media(media_assets(storage_path,media_type))')
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (!active) return;
+      if (error || !data?.length) {
+        setLivePosts([]);
+      } else {
+        setLivePosts((data as LiveForumPost[]).map((post) => {
+          const nodeId = post.forum_topics?.[0]?.topic_node_links?.[0]?.node_id || '';
+          const topicNode = nodeId ? nodes.get(nodeId) : undefined;
+          const media = (post.forum_post_media || []).flatMap((entry) => {
+            const asset = entry.media_assets?.[0];
+            if (!asset) return [];
+            return [{ url: storageUrl(asset.storage_path), type: asset.media_type === 'video' ? 'video' : 'image', alt: '討論附件' }];
+          });
+          return {
+            id: post.id,
+            nodeId: topicNode?.id || 'all',
+            nodeLabel: topicNode?.label || '社群討論',
+            nodeColor: topicNode?.color || '#172033',
+            title: post.title,
+            body: post.body_text,
+            text: post.body_text,
+            media,
+            author: '會員',
+            timestamp: post.created_at,
+            upvotes: 0,
+            replies: [],
+            emojis: [],
+          } as ForumItem;
+        }));
+      }
+      setIsLoading(false);
+    };
+    void load();
+    return () => { active = false; };
+  }, [nodes]);
+
+  const legacyItems = useMemo(() => toForumItems(nodesData, discussions), [nodesData, discussions]);
+  const items = livePosts.length ? livePosts : legacyItems;
 
   const visibleItems = useMemo(() => {
     const filtered = activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId);
@@ -119,6 +187,7 @@ export default function ForumFeature({ nodesData, discussions, isMember = false 
           </div>
         </div>
 
+        {isLoading && <div className="mb-5 rounded-2xl border border-[#CBD5E1] bg-white p-4 text-sm text-[#64748B]">正在載入正式討論；若沒有正式文章，會保留原本討論資料。</div>}
         <div className="mb-5 flex items-center justify-between rounded-2xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm">
           <span className="font-bold text-[#334155]">共有 {visibleItems.length} 篇可顯示討論</span>
           {isMember ? <button type="button" className="rounded-xl bg-[#172033] px-4 py-2 text-xs font-bold text-white">發表新主題（下一階段）</button> : <span className="text-[#64748B]">登入後可以發文</span>}
