@@ -13,6 +13,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { GraphNode, AppData, DiscussionPost } from '@/lib/types';
 import { logToSupabase, getPostActivityScore, getWafuColor } from '@/lib/constants';
+import { VOTE_TYPES, parseDiscussionDate, type VoteType } from '@/lib/contentModel';
 import { VoteModule, Comment } from '@/components/Comment';
 import AiChatbot from '@/components/AiChatbot';
 import { useQuizConfig } from '@/components/QuizContext';
@@ -57,13 +58,13 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   // 計算保留機制與熱門
   const hotLimit = node.level === 0 ? 10 : node.level === 1 ? 5 : 3;
   const isChatLobby = node.level === 0 && lobbyTab === 'chat';
-  const sortedPostsForHot = isChatLobby ? [] : [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || b.timestamp - a.timestamp);
+  const sortedPostsForHot = isChatLobby ? [] : [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
   const hotPostIds = new Set(sortedPostsForHot.slice(0, hotLimit).map(p => p.id));
 
   const [now] = useState(() => Date.now());
   const posts = rawPosts.map(p => ({ ...p, isHot: hotPostIds.has(p.id) })).filter(p => {
       if (p.isHot) return true;
-      const pTime = p.timestamp || now;
+      const pTime = parseDiscussionDate(p.timestamp)?.getTime() || now;
       const diff = (pTime + (24 * 3600000) + (getPostActivityScore(p) * 600000)) - now;
       return diff > 0;
   });
@@ -366,6 +367,10 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   };
 
   const castVote = async (voteType: string) => {
+    if (!VOTE_TYPES.includes(voteType as VoteType)) {
+      showToast('投票選項無效，請重新選擇。');
+      return;
+    }
     if (isGuest) {
       showToast("🔒 請註冊完整帳號以參與節點喜好投票！");
       return;
@@ -405,35 +410,42 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
       // UPSERT：若存在就更新，若不存在就插入（on_conflict: user_id, node_id）
       if (isCancelling) {
         // 取消投票 → 刪除該筆記錄
-        supabase.from('node_votes')
+        await supabase.from('node_votes')
           .delete()
           .eq('user_id', user.id)
-          .eq('node_id', node.id)
-          .then(() => {});
+          .eq('node_id', node.id);
       } else {
-        supabase.from('node_votes')
+        const { error: voteError } = await supabase.from('node_votes')
           .upsert(
             { user_id: user.id, node_id: node.id, vote_type: voteType, updated_at: new Date().toISOString() },
             { onConflict: 'user_id,node_id' }
-          )
-          .then(() => {});
+          );
+        if (voteError) {
+          console.error('node vote write failed', voteError);
+          showToast('投票尚未寫入，請稍後再試。');
+          return;
+        }
       }
 
-      // 重新計算全網統計（從 node_votes 表聚合，確保數字準確）
-      supabase.from('node_votes')
+      // 寫入完成後才重新計算全網統計，避免讀到舊資料
+      const { data: votes } = await supabase.from('node_votes')
         .select('vote_type')
-        .eq('node_id', node.id)
-        .then(({ data: votes }) => {
-          if (!votes) return;
-          const fresh = { need:0, like:0, curious:0, neutral:0, nope:0 } as Record<string, number>;
-          votes.forEach(v => { if (v.vote_type && fresh[v.vote_type] !== undefined) fresh[v.vote_type]++; });
-          // 更新 quiz_content 的全網統計
-          supabase.from('quiz_content').select('content').eq('key_name', 'quiz_node_stats').then(({ data: statsArr }) => {
-            const curStats = ((statsArr?.[0]?.content) || {}) as Record<string, Record<string, number>>;
-            curStats[node.id] = fresh;
-            supabase.from('quiz_content').upsert({ key_name: 'quiz_node_stats', content: curStats }, { onConflict: 'key_name' }).then(() => {});
-          });
-        });
+        .eq('node_id', node.id);
+      if (!votes) return;
+      const fresh = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 } as Record<string, number>;
+      votes.forEach((vote) => {
+        if (vote.vote_type && fresh[vote.vote_type] !== undefined) fresh[vote.vote_type]++;
+      });
+      // 更新 quiz_content 的全網統計；顯示層仍以 node_votes 為準，這裡只保留相容快取。
+      const { data: statsArr } = await supabase
+        .from('quiz_content')
+        .select('content')
+        .eq('key_name', 'quiz_node_stats');
+      const curStats = ((statsArr?.[0]?.content) || {}) as Record<string, Record<string, number>>;
+      curStats[node.id] = fresh;
+      await supabase
+        .from('quiz_content')
+        .upsert({ key_name: 'quiz_node_stats', content: curStats }, { onConflict: 'key_name' });
     }
 
     logToSupabase('node_vote', { node_id: node.id, node_label: node.label, vote_type: voteType, userName });
@@ -467,7 +479,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
       nodeId: key,
       nodeColor: getWafuColor(n.color)
     }));
-  }).sort((a,b) => getPostActivityScore(b) - getPostActivityScore(a) || b.timestamp - a.timestamp)
+  }).sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0))
     .slice(0, hotPostsLimit)
     .map(p => ({ ...p, isHot: true }));
 

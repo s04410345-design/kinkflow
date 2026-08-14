@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Papa from 'papaparse';
 import type { GraphNode, GraphLink, AppData, DiscussionPost, VoteStats } from '@/lib/types';
+import { extractDiscussionContent, parseDiscussionDate } from '@/lib/contentModel';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 
 export function useSupabaseSync() {
@@ -92,38 +93,60 @@ export function useSupabaseSync() {
             if (!grouped[row.node_id]) grouped[row.node_id] = [];
             grouped[row.node_id].push({
               id: row.id,
-              author: row.author,
-              text: row.text,
-              upvotes: row.upvotes,
-              timestamp: Number(row.timestamp),
+              author: row.author || '匿名會員',
+              text: row.text || row.body || '',
+              ...extractDiscussionContent(row.text || row.body || '', row.title, row.body, row.media),
+              upvotes: Number(row.upvotes || 0),
+              timestamp: row.timestamp,
               replies: row.replies || [],
               emojis: row.emojis || []
             });
           });
           for (const key in grouped) {
-            grouped[key].sort((a, b) => a.timestamp - b.timestamp);
+            grouped[key].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
           }
           setAppData(prev => ({ ...prev, discussions: grouped }));
         }
 
-        const { data: voteLogs } = await supabase
-          .from('visitor_logs')
-          .select('metadata_json')
-          .eq('action_type', 'node_vote');
-        if (voteLogs) {
-          const globalStats: Record<string, Record<string, number>> = {};
-          const latestVotes = new Map<string, Record<string, string>>();
-          voteLogs.forEach(log => {
-            const d = log.metadata_json as Record<string, any> | null;
-            if (d && d.node_id && d.vote_type && d.userName) {
-               latestVotes.set(`${d.userName}_${d.node_id}`, d);
+        // 新模型優先：每個 user + node 只有一筆，統計不依賴前端或舊 log 推算。
+        const { data: nodeVotes, error: nodeVotesError } = await supabase
+          .from('node_votes')
+          .select('node_id, vote_type, user_id');
+        if (!nodeVotesError && nodeVotes) {
+          const globalStats: Record<string, VoteStats> = {};
+          nodeVotes.forEach((vote) => {
+            if (!vote.node_id || !vote.vote_type) return;
+            if (!globalStats[vote.node_id]) {
+              globalStats[vote.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
+            }
+            if (vote.vote_type in globalStats[vote.node_id]) {
+              globalStats[vote.node_id][vote.vote_type as keyof VoteStats] += 1;
             }
           });
-          latestVotes.forEach(d => {
-             if (!globalStats[d.node_id]) globalStats[d.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
-             globalStats[d.node_id][d.vote_type] = (globalStats[d.node_id][d.vote_type] || 0) + 1;
-          });
-          setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...(globalStats as unknown as Record<string, VoteStats>) } }));
+          setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...globalStats } }));
+        } else {
+          // 相容舊站：只有新表不存在或尚未部署時，才使用舊 visitor_logs。
+          const { data: voteLogs } = await supabase
+            .from('visitor_logs')
+            .select('metadata_json')
+            .eq('action_type', 'node_vote');
+          if (voteLogs) {
+            const globalStats: Record<string, Record<string, number>> = {};
+            const latestVotes = new Map<string, Record<string, string>>();
+            voteLogs.forEach(log => {
+              const d = log.metadata_json as Record<string, any> | null;
+              if (d && d.node_id && d.vote_type && d.userName) {
+                latestVotes.set(`${d.userName}_${d.node_id}`, d);
+              }
+            });
+            latestVotes.forEach(d => {
+              if (!globalStats[d.node_id]) globalStats[d.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
+              if (d.vote_type in globalStats[d.node_id]) {
+                globalStats[d.node_id][d.vote_type] = (globalStats[d.node_id][d.vote_type] || 0) + 1;
+              }
+            });
+            setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...(globalStats as unknown as Record<string, VoteStats>) } }));
+          }
         }
       } catch (e) {
         console.error("資料庫載入錯誤:", e);

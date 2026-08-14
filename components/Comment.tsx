@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { DiscussionPost, AppData, EmojiCount } from '@/lib/types';
 import { emojiList } from '@/lib/constants';
 import { getPostActivityScore } from '@/lib/constants';
+import { formatDiscussionDate, parseDiscussionDate } from '@/lib/contentModel';
 import dynamic from 'next/dynamic';
 import confetti from 'canvas-confetti';
 
@@ -132,7 +133,7 @@ export function Comment({ post, hideActions, hideReplies, nodeColor, allowReply,
   useEffect(() => {
     if (!hideActions) {
       const now = Date.now();
-      const pTime = post.timestamp || now;
+      const pTime = parseDiscussionDate(post.timestamp)?.getTime() || now;
       const diff = (pTime + (24 * 3600000) + (getPostActivityScore(post) * 600000)) - now;
       const calculatedStr = diff <= 0
         ? (post.isHot ? '永久精華' : '即將隱藏')
@@ -196,7 +197,7 @@ export function Comment({ post, hideActions, hideReplies, nodeColor, allowReply,
             </span>
           )}
           <span className={`text-[11px] font-bold tracking-wide ${subTextColorClass}`}>
-            {new Date(post.timestamp).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
+            {formatDiscussionDate(post.timestamp)}
           </span>
         </div>
         {!hideActions && (
@@ -287,7 +288,7 @@ export function Comment({ post, hideActions, hideReplies, nodeColor, allowReply,
                   {(isAdmin || (currentUserName && reply.author.startsWith(currentUserName))) && onDelete && (
                     <button onClick={() => { if(confirm('確定要刪除這則回覆嗎？')) onDelete(post.id, reply.id); }} className="text-[#E08A8A]/70 hover:text-[#E08A8A] text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">刪除</button>
                   )}
-                  <span className="text-[10px] text-[#4A4238]/60">{reply.timestamp ? new Date(reply.timestamp).toLocaleString('zh-TW', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+                  <span className="text-[10px] text-[#4A4238]/60">{reply.timestamp ? formatDiscussionDate(reply.timestamp) : ''}</span>
                 </div>
               </div>
               <p className="text-[#1A1612] mb-2 leading-relaxed whitespace-pre-wrap break-words break-all font-medium">{reply.text}</p>

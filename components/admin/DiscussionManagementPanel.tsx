@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { AuthorName } from '@/components/Comment';
 import { Search, Trash2, RefreshCw, MessageSquare, ThumbsUp } from 'lucide-react';
+import { formatDiscussionDate, parseDiscussionDate } from '@/lib/contentModel';
 
 interface PostItem {
   id: string | number;
   author: string;
   text: string;
   upvotes: number;
-  timestamp: number;
+  timestamp: number | string | null | undefined;
   node_id?: string;
   replies?: any[];
   emojis?: any[];
@@ -61,7 +62,7 @@ export default function DiscussionManagementPanel() {
             author: item.author || '匿名',
             text: item.text || '',
             upvotes: item.upvotes || 0,
-            timestamp: Number(item.timestamp) || Date.now(),
+            timestamp: item.timestamp || Date.now(),
             node_id: item.node_id || 'lobby_board',
             replies: item.replies || [],
             emojis: item.emojis || []
@@ -76,7 +77,7 @@ export default function DiscussionManagementPanel() {
                 author: reply.author || '匿名',
                 text: reply.text || '',
                 upvotes: reply.upvotes || 0,
-                timestamp: Number(reply.timestamp) || Date.now(),
+                timestamp: reply.timestamp || item.timestamp || Date.now(),
                 node_id: item.node_id || 'lobby_board',
                 isReply: true,
                 parentId: item.id
@@ -130,7 +131,7 @@ export default function DiscussionManagementPanel() {
     md += `匯出時間：${new Date().toLocaleString('zh-TW')}\n\n`;
     filteredPosts.forEach(p => {
       const location = nodeNames[p.node_id || ''] || p.node_id || '未知位置';
-      md += `### [${location}] 👤 ${p.author} (👍 ${p.upvotes} | 🕒 ${new Date(p.timestamp).toLocaleString('zh-TW')})\n`;
+      md += `### [${location}] 👤 ${p.author} (👍 ${p.upvotes} | 🕒 ${formatDiscussionDate(p.timestamp)})\n`;
       md += `> ${p.text.replace(/\n/g, '\n> ')}\n\n`;
     });
 
@@ -248,7 +249,7 @@ export default function DiscussionManagementPanel() {
 
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-[#4A4238]/40">
-                      {p.timestamp ? new Date(p.timestamp).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                      {p.timestamp ? formatDiscussionDate(p.timestamp) : ''}
                     </span>
                     <button 
                       onClick={() => handleDeletePost(p)}

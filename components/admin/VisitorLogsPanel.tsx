@@ -3,6 +3,7 @@
 // @ts-nocheck
 import { useState, useMemo } from 'react';
 import type { DiscussionPost } from '@/lib/types';
+import { formatDiscussionDate, parseDiscussionDate } from '@/lib/contentModel';
 
 interface LogEntry {
   id: string;
@@ -52,7 +53,7 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
         }
         return res;
       })
-    ).sort((a,b) => b.timestamp - a.timestamp);
+    ).sort((a, b) => (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
   }, [discussions]);
 
   const matchesSearch = (text: string) => {
@@ -110,7 +111,7 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
   const formatRegisters = () => filteredRegisters.map(l => `- **${new Date(l.created_at).toLocaleString('zh-TW')}**: ${l.details?.userName || l.details?.email || '未命名訪客'} - 裝置: ${l.device_id?.slice(0,8) || '無裝置紀錄'}`).join('\n');
   const formatQuizzes = () => filteredQuizzes.map(l => `- **${new Date(l.created_at).toLocaleString('zh-TW')}**: ${l.details?.userName || '未命名訪客'} 完成測驗 (最高特質: ${l.details?.top_trait || '未知'})`).join('\n');
   const formatVotes = () => filteredVotes.map(l => `- **${new Date(l.created_at).toLocaleString('zh-TW')}**: ${l.details?.userName || '未知'} 投票 [${l.details?.node_label || nodeNameMap[l.details?.node_id]}] -> ${l.details?.vote_type}`).join('\n');
-  const formatComments = () => filteredComments.map(c => `- **${new Date(c.timestamp).toLocaleString('zh-TW')}**: ${c.author} 在 [${nodeNameMap[c.nodeId] || c.nodeId}] 留言: "${c.text}"`).join('\n');
+  const formatComments = () => filteredComments.map(c => `- **${formatDiscussionDate(c.timestamp)}**: ${c.author} 在 [${nodeNameMap[c.nodeId] || c.nodeId}] 留言: "${c.text}"`).join('\n');
 
   const exportAll = () => {
     const md = `# 訪客與行為管理總匯出\n\n## 註冊列表\n${formatRegisters() || '無紀錄'}\n\n## 測驗列表\n${formatQuizzes() || '無紀錄'}\n\n## 留言列表\n${formatComments() || '無紀錄'}\n\n## 投票列表\n${formatVotes() || '無紀錄'}\n`;
@@ -220,7 +221,7 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
                     <span className="font-bold text-[#4A4238] text-base" onClick={(e) => { e.stopPropagation(); setSelectedUser(c.author); }}>{c.author}</span>
                     <span className="bg-[#E8C5C8]/20 text-[#4A4238] font-bold px-3 py-1 rounded-full text-xs">{nodeNameMap[c.nodeId] || c.nodeId}</span>
                   </div>
-                  <div className="text-[#4A4238]/50 mb-2 text-xs font-mono">{new Date(c.timestamp).toLocaleString('zh-TW')}</div>
+                  <div className="text-[#4A4238]/50 mb-2 text-xs font-mono">{formatDiscussionDate(c.timestamp)}</div>
                   <div className="text-[#4A4238]/90 text-sm leading-relaxed whitespace-pre-wrap">{c.text}</div>
                 </div>
               ))}

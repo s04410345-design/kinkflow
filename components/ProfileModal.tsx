@@ -9,6 +9,7 @@ import type { DiscussionPost } from '@/lib/types';
 import { useSupabaseSync } from '@/hooks/useSupabaseSync';
 import { QuizResultPhase } from './quiz/QuizResultPhase';
 import { useQuizConfig } from './QuizContext';
+import { parseDiscussionDate } from '@/lib/contentModel';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, PolarRadiusAxis } from 'recharts';
 
 interface UserProfile {
@@ -152,8 +153,8 @@ export default function ProfileModal({
         }
         
         const totalComments = posts.length;
-        const latestPosts = [...posts].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
-        const hotPosts = [...posts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || b.timestamp - a.timestamp).slice(0, 5);
+        const latestPosts = [...posts].sort((a, b) => (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0)).slice(0, 5);
+        const hotPosts = [...posts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0)).slice(0, 5);
 
         setProfile({
           userName: cleanName,

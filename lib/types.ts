@@ -32,12 +32,22 @@ export interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
 }
 
 // ================= 社群互動 =================
+export interface DiscussionMedia {
+  type: 'image' | 'gif' | 'video';
+  url: string;
+  alt?: string;
+}
+
 export interface DiscussionPost {
   id: string | number;
   author: string;
+  /** 舊版資料仍使用 text；新 UI 優先使用 title/body。 */
   text: string;
+  title?: string;
+  body?: string;
+  media?: DiscussionMedia[];
   upvotes: number;
-  timestamp: number;
+  timestamp: number | string | null | undefined;
   isHot?: boolean;
   replies?: Reply[];
   emojis?: EmojiCount[];
