@@ -33,6 +33,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSupabaseSync } from '@/hooks/useSupabaseSync';
 import { QuizConfigContext } from '@/components/QuizContext';
 import StyleConfigModal from '@/components/StyleConfigModal';
+import { extractDiscussionContent, parseDiscussionDate } from '@/lib/contentModel';
 
 // ================= 主要元件 =================
 export default function ClientApp({ quizConfig }: { quizConfig: any }) {
@@ -187,8 +188,14 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
               const k = d.node_id;
               if (!cleanedDiscussions[k]) cleanedDiscussions[k] = [];
               cleanedDiscussions[k].push({
-                id: d.id, author: d.author, text: d.text, upvotes: d.upvotes || 0, timestamp: Number(d.timestamp),
-                replies: d.replies || [], emojis: d.emojis || []
+                id: d.id,
+                author: d.author || '匿名會員',
+                text: d.text || d.body || '',
+                ...extractDiscussionContent(d.text || d.body || '', d.title, d.body, d.media),
+                upvotes: Number(d.upvotes || 0),
+                timestamp: d.timestamp,
+                replies: d.replies || [],
+                emojis: d.emojis || []
               });
             });
 
@@ -196,13 +203,13 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
             for (const k in next.discussions) {
               const optimistics = next.discussions[k].filter(p => typeof p.id === 'string' && String(p.id).startsWith('temp_'));
               const fromDb = cleanedDiscussions[k] || [];
-              next.discussions[k] = [...fromDb, ...optimistics].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+              next.discussions[k] = [...fromDb, ...optimistics].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
               delete cleanedDiscussions[k];
             }
             
             // Add any newly discovered nodes
             for (const k in cleanedDiscussions) {
-              next.discussions[k] = cleanedDiscussions[k].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+              next.discussions[k] = cleanedDiscussions[k].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
             }
             
             return next;

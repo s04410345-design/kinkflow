@@ -13,7 +13,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { GraphNode, AppData, DiscussionPost } from '@/lib/types';
 import { logToSupabase, getPostActivityScore, getWafuColor } from '@/lib/constants';
-import { VOTE_TYPES, type VoteType } from '@/lib/contentModel';
+import { VOTE_TYPES, parseDiscussionDate, type VoteType } from '@/lib/contentModel';
 import { VoteModule, Comment } from '@/components/Comment';
 import AiChatbot from '@/components/AiChatbot';
 import { useQuizConfig } from '@/components/QuizContext';
@@ -58,13 +58,13 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   // 計算保留機制與熱門
   const hotLimit = node.level === 0 ? 10 : node.level === 1 ? 5 : 3;
   const isChatLobby = node.level === 0 && lobbyTab === 'chat';
-  const sortedPostsForHot = isChatLobby ? [] : [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || b.timestamp - a.timestamp);
+  const sortedPostsForHot = isChatLobby ? [] : [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
   const hotPostIds = new Set(sortedPostsForHot.slice(0, hotLimit).map(p => p.id));
 
   const [now] = useState(() => Date.now());
   const posts = rawPosts.map(p => ({ ...p, isHot: hotPostIds.has(p.id) })).filter(p => {
       if (p.isHot) return true;
-      const pTime = p.timestamp || now;
+      const pTime = parseDiscussionDate(p.timestamp)?.getTime() || now;
       const diff = (pTime + (24 * 3600000) + (getPostActivityScore(p) * 600000)) - now;
       return diff > 0;
   });
@@ -479,7 +479,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
       nodeId: key,
       nodeColor: getWafuColor(n.color)
     }));
-  }).sort((a,b) => getPostActivityScore(b) - getPostActivityScore(a) || b.timestamp - a.timestamp)
+  }).sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0))
     .slice(0, hotPostsLimit)
     .map(p => ({ ...p, isHot: true }));
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { DiscussionPost, GraphNode } from '@/lib/types';
+import { extractDiscussionContent, formatDiscussionDate, sortDiscussionPosts } from '@/lib/contentModel';
 
 type ForumFeatureProps = {
   nodesData: GraphNode[];
@@ -21,11 +22,25 @@ function toForumItems(nodesData: GraphNode[], discussions: Record<string, Discus
     const node = nodes.get(nodeId);
     return (posts || []).map((post) => ({
       ...post,
+      ...extractDiscussionContent(post.text, post.title, post.body, post.media),
       nodeId,
       nodeLabel: node?.label || post.nodeName || '未分類主題',
       nodeColor: node?.color || '#D9B650',
     }));
   });
+}
+
+function DiscussionMedia({ post }: { post: DiscussionPost }) {
+  const content = extractDiscussionContent(post.text, post.title, post.body, post.media);
+  if (!content.media?.length) return null;
+  return (
+    <div className="mt-5 grid gap-3 sm:grid-cols-2" aria-label="文章圖片">
+      {content.media.filter((item) => item.type !== 'video').map((item) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key={item.url} src={item.url} alt={item.alt || '討論附件圖片'} loading="lazy" referrerPolicy="no-referrer" className="max-h-80 w-full rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] object-contain" />
+      ))}
+    </div>
+  );
 }
 
 export default function ForumFeature({ nodesData, discussions, isMember = false }: ForumFeatureProps) {
@@ -36,30 +51,32 @@ export default function ForumFeature({ nodesData, discussions, isMember = false 
 
   const visibleItems = useMemo(() => {
     const filtered = activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId);
-    return [...filtered].sort((a, b) => sortMode === 'hot'
-      ? (Number(b.upvotes || 0) + (b.replies?.length || 0) * 2) - (Number(a.upvotes || 0) + (a.replies?.length || 0) * 2)
-      : Number(b.timestamp || 0) - Number(a.timestamp || 0));
+    return sortDiscussionPosts(filtered, sortMode);
   }, [activeNodeId, items, sortMode]);
 
   const selectedPost = items.find((post) => String(post.id) === String(selectedPostId)) || null;
 
   if (selectedPost) {
+    const content = extractDiscussionContent(selectedPost.text, selectedPost.title, selectedPost.body, selectedPost.media);
     return (
       <section className="h-full overflow-y-auto bg-[#F8FAFC] text-[#172033]">
         <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-10">
           <button type="button" onClick={() => setSelectedPostId(null)} className="mb-6 rounded-full border border-[#CBD5E1] bg-white px-4 py-2 text-sm font-bold text-[#334155] hover:bg-[#F1F5F9]">
             ← 返回討論版
           </button>
-          <article className="rounded-3xl border border-[#CBD5E1] bg-white shadow-sm">
+          <article className="overflow-hidden rounded-3xl border border-[#CBD5E1] bg-white shadow-sm">
             <header className="border-b border-[#E2E8F0] px-5 py-7 md:px-10">
               <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-bold">
                 <span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: selectedPost.nodeColor }}>{selectedPost.nodeLabel}</span>
                 <span className="rounded-full bg-[#F1F5F9] px-3 py-1 text-[#475569]">會員討論</span>
               </div>
-              <h1 className="text-2xl font-black leading-tight md:text-4xl">{selectedPost.text.slice(0, 90)}{selectedPost.text.length > 90 ? '…' : ''}</h1>
-              <p className="mt-3 text-sm text-[#64748B]">作者：{selectedPost.author}　·　{new Date(selectedPost.timestamp).toLocaleString('zh-TW')}</p>
+              <h1 className="text-2xl font-black leading-tight md:text-4xl">{content.title}</h1>
+              <p className="mt-3 text-sm text-[#64748B]">作者：{selectedPost.author || '匿名會員'}　·　{formatDiscussionDate(selectedPost.timestamp)}</p>
             </header>
-            <div className="whitespace-pre-wrap px-5 py-7 text-base leading-8 text-[#263449] md:px-10 md:py-10">{selectedPost.text}</div>
+            <div className="px-5 py-7 text-base leading-8 text-[#263449] md:px-10 md:py-10">
+              <p className="whitespace-pre-wrap">{content.body}</p>
+              <DiscussionMedia post={selectedPost} />
+            </div>
             <div className="flex flex-wrap gap-2 border-t border-[#E2E8F0] px-5 py-5 text-sm font-bold text-[#475569] md:px-10">
               <span className="rounded-full bg-[#F8FAFC] px-3 py-1">👍 {selectedPost.upvotes || 0}</span>
               <span className="rounded-full bg-[#F8FAFC] px-3 py-1">回覆 {selectedPost.replies?.length || 0}</span>
@@ -111,14 +128,18 @@ export default function ForumFeature({ nodesData, discussions, isMember = false 
           <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有討論。可以先從心智圖節點開始探索。</div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {visibleItems.map((post) => (
-              <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md">
-                <div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{new Date(post.timestamp).toLocaleDateString('zh-TW')}</span></div>
-                <h2 className="text-lg font-black leading-snug text-[#172033]">{post.text.slice(0, 100)}{post.text.length > 100 ? '…' : ''}</h2>
-                <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#64748B]">{post.text}</p>
-                <div className="mt-4 flex gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author}</span><span>👍 {post.upvotes || 0}</span><span>回覆 {post.replies?.length || 0}</span></div>
-              </button>
-            ))}
+            {visibleItems.map((post) => {
+              const content = extractDiscussionContent(post.text, post.title, post.body, post.media);
+              return (
+                <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md">
+                  <div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{formatDiscussionDate(post.timestamp)}</span></div>
+                  <h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2>
+                  <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>
+                  {content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}
+                  <div className="mt-4 flex gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>👍 {post.upvotes || 0}</span><span>回覆 {post.replies?.length || 0}</span></div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

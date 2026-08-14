@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Papa from 'papaparse';
 import type { GraphNode, GraphLink, AppData, DiscussionPost, VoteStats } from '@/lib/types';
+import { extractDiscussionContent, parseDiscussionDate } from '@/lib/contentModel';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 
 export function useSupabaseSync() {
@@ -92,16 +93,17 @@ export function useSupabaseSync() {
             if (!grouped[row.node_id]) grouped[row.node_id] = [];
             grouped[row.node_id].push({
               id: row.id,
-              author: row.author,
-              text: row.text,
-              upvotes: row.upvotes,
-              timestamp: Number(row.timestamp),
+              author: row.author || '匿名會員',
+              text: row.text || row.body || '',
+              ...extractDiscussionContent(row.text || row.body || '', row.title, row.body, row.media),
+              upvotes: Number(row.upvotes || 0),
+              timestamp: row.timestamp,
               replies: row.replies || [],
               emojis: row.emojis || []
             });
           });
           for (const key in grouped) {
-            grouped[key].sort((a, b) => a.timestamp - b.timestamp);
+            grouped[key].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
           }
           setAppData(prev => ({ ...prev, discussions: grouped }));
         }
