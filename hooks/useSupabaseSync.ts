@@ -106,24 +106,45 @@ export function useSupabaseSync() {
           setAppData(prev => ({ ...prev, discussions: grouped }));
         }
 
-        const { data: voteLogs } = await supabase
-          .from('visitor_logs')
-          .select('metadata_json')
-          .eq('action_type', 'node_vote');
-        if (voteLogs) {
-          const globalStats: Record<string, Record<string, number>> = {};
-          const latestVotes = new Map<string, Record<string, string>>();
-          voteLogs.forEach(log => {
-            const d = log.metadata_json as Record<string, any> | null;
-            if (d && d.node_id && d.vote_type && d.userName) {
-               latestVotes.set(`${d.userName}_${d.node_id}`, d);
+        // 新模型優先：每個 user + node 只有一筆，統計不依賴前端或舊 log 推算。
+        const { data: nodeVotes, error: nodeVotesError } = await supabase
+          .from('node_votes')
+          .select('node_id, vote_type, user_id');
+        if (!nodeVotesError && nodeVotes) {
+          const globalStats: Record<string, VoteStats> = {};
+          nodeVotes.forEach((vote) => {
+            if (!vote.node_id || !vote.vote_type) return;
+            if (!globalStats[vote.node_id]) {
+              globalStats[vote.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
+            }
+            if (vote.vote_type in globalStats[vote.node_id]) {
+              globalStats[vote.node_id][vote.vote_type as keyof VoteStats] += 1;
             }
           });
-          latestVotes.forEach(d => {
-             if (!globalStats[d.node_id]) globalStats[d.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
-             globalStats[d.node_id][d.vote_type] = (globalStats[d.node_id][d.vote_type] || 0) + 1;
-          });
-          setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...(globalStats as unknown as Record<string, VoteStats>) } }));
+          setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...globalStats } }));
+        } else {
+          // 相容舊站：只有新表不存在或尚未部署時，才使用舊 visitor_logs。
+          const { data: voteLogs } = await supabase
+            .from('visitor_logs')
+            .select('metadata_json')
+            .eq('action_type', 'node_vote');
+          if (voteLogs) {
+            const globalStats: Record<string, Record<string, number>> = {};
+            const latestVotes = new Map<string, Record<string, string>>();
+            voteLogs.forEach(log => {
+              const d = log.metadata_json as Record<string, any> | null;
+              if (d && d.node_id && d.vote_type && d.userName) {
+                latestVotes.set(`${d.userName}_${d.node_id}`, d);
+              }
+            });
+            latestVotes.forEach(d => {
+              if (!globalStats[d.node_id]) globalStats[d.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
+              if (d.vote_type in globalStats[d.node_id]) {
+                globalStats[d.node_id][d.vote_type] = (globalStats[d.node_id][d.vote_type] || 0) + 1;
+              }
+            });
+            setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...(globalStats as unknown as Record<string, VoteStats>) } }));
+          }
         }
       } catch (e) {
         console.error("資料庫載入錯誤:", e);

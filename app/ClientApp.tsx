@@ -20,6 +20,8 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import AuthModal from '@/components/AuthModal';
 import GraphView from '@/components/GraphView';
 import QuizView from '@/components/QuizView';
+import ArticleFeature from '@/components/ArticleFeature';
+import ForumFeature from '@/components/ForumFeature';
 import AiChatbot from '@/components/AiChatbot';
 import AgreementModal from '@/components/AgreementModal';
 import NotificationDropdown from '@/components/NotificationDropdown';
@@ -38,7 +40,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const { appData, setAppData, nodesData, setNodesData, linksData, setLinksData, dbLoaded, setDbLoaded } = useSupabaseSync();
 
   const [showAboutModal, setShowAboutModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'graph' | 'quiz'>('graph');
+  const [activeTab, setActiveTab] = useState<'graph' | 'quiz' | 'articles' | 'forum'>('graph');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
   const [targetPostId, setTargetPostId] = useState<string | null>(null);
@@ -428,6 +430,12 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           <button onClick={() => setActiveTab('quiz')} className={`font-bold transition-colors flex items-center gap-1.5 ${activeTab === 'quiz' ? 'text-[#4A4238] border-b-2 border-[#E8C5C8]' : 'text-[#4A4238]/40 hover:text-[#4A4238]/80'}`}>
             <span className="text-sm">📝</span> 性向測驗
           </button>
+          <button onClick={() => { setActiveTab('articles'); closeDrawer(); }} className={`font-bold transition-colors flex items-center gap-1.5 ${activeTab === 'articles' ? 'text-[#4A4238] border-b-2 border-[#D9B650]' : 'text-[#4A4238]/40 hover:text-[#4A4238]/80'}`}>
+            <span className="text-sm">📚</span> 專題誌
+          </button>
+          <button onClick={() => { setActiveTab('forum'); closeDrawer(); }} className={`font-bold transition-colors flex items-center gap-1.5 ${activeTab === 'forum' ? 'text-[#172033] border-b-2 border-[#172033]' : 'text-[#4A4238]/40 hover:text-[#4A4238]/80'}`}>
+            <span className="text-sm">💬</span> 討論版
+          </button>
           
           <button 
             className="font-bold transition-colors flex items-center gap-1.5 text-[#4A4238]/40 hover:text-[#4A4238]/80 ml-2"
@@ -478,6 +486,14 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
               <button onClick={() => { setActiveTab('quiz'); setMobileMenuOpen(false); }}
                 className={`w-full text-left px-4 py-3 rounded-xl font-black transition-colors flex items-center gap-2 ${activeTab === 'quiz' ? 'bg-[#E8C5C8]/40 text-[#1A1612]' : 'text-[#1A1612] hover:bg-[#E8C5C8]/20'}`}>
                 <span>📝</span> 性向測驗
+              </button>
+              <button onClick={() => { setActiveTab('articles'); closeDrawer(); setMobileMenuOpen(false); }}
+                className={`w-full text-left px-4 py-3 rounded-xl font-black transition-colors flex items-center gap-2 ${activeTab === 'articles' ? 'bg-[#FFF4C8] text-[#1A1612]' : 'text-[#1A1612] hover:bg-[#E8C5C8]/20'}`}>
+                <span>📚</span> 專題誌
+              </button>
+              <button onClick={() => { setActiveTab('forum'); closeDrawer(); setMobileMenuOpen(false); }}
+                className={`w-full text-left px-4 py-3 rounded-xl font-black transition-colors flex items-center gap-2 ${activeTab === 'forum' ? 'bg-[#E2E8F0] text-[#172033]' : 'text-[#1A1612] hover:bg-[#E8C5C8]/20'}`}>
+                <span>💬</span> 討論版
               </button>
               
               <button onClick={() => { 
@@ -530,6 +546,27 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
         {activeTab === 'quiz' && (
           <ErrorBoundary moduleName="性向測驗">
             <QuizView showToast={showToast} userName={userName} onCancel={() => setActiveTab('graph')} quizConfig={quizConfig} />
+          </ErrorBoundary>
+        )}
+        {activeTab === 'articles' && (
+          <ErrorBoundary moduleName="專題誌">
+            <ArticleFeature
+              nodesData={nodesData.length > 0 ? nodesData : defaultGraphNodes}
+              onBackToNode={(nodeId) => {
+                setActiveTab('graph');
+                const node = (nodesData.length > 0 ? nodesData : defaultGraphNodes).find((item) => item.id === nodeId);
+                if (node) handleNodeClick(node);
+              }}
+            />
+          </ErrorBoundary>
+        )}
+        {activeTab === 'forum' && (
+          <ErrorBoundary moduleName="討論版">
+            <ForumFeature
+              nodesData={nodesData.length > 0 ? nodesData : defaultGraphNodes}
+              discussions={appData.discussions}
+              isMember={!isGuest && Boolean(userId)}
+            />
           </ErrorBoundary>
         )}
       </div>
