@@ -20,7 +20,6 @@ import QuizContentEditor from '@/components/admin/QuizContentEditor';
 import MemberManagementPanel from '@/components/admin/MemberManagementPanel';
 import DiscussionManagementPanel from '@/components/admin/DiscussionManagementPanel';
 import AnalyticsDashboardPanel from '@/components/admin/AnalyticsDashboardPanel';
-import AuthModal from '@/components/AuthModal';
 import StyleConfigModal from '@/components/StyleConfigModal';
 import GraphView from '@/components/GraphView';
 import type { GraphNode, GraphLink } from '@/lib/types';
@@ -80,7 +79,6 @@ export default function AdminDashboard() {
   const [isAuth, setIsAuth] = useState(false);
   const [adminLevel, setAdminLevel] = useState<number | null>(null);
   const [adminEmail, setAdminEmail] = useState<string>('');
-  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authError, setAuthError] = useState('');
 
   const [activeTab, setActiveTab] = useState<'analytics' | 'cms_nodes' | 'cms_quiz' | 'users' | 'discussions' | 'comments' | 'admins'>('analytics');
@@ -742,12 +740,11 @@ export default function AdminDashboard() {
         <div className="bg-white p-10 rounded-3xl shadow-xl border border-[#D1C6B4]/30 max-w-md w-full text-center">
           <h1 className="text-3xl font-bold mb-2">後台管理登入</h1>
           <p className="text-[#4A4238]/60 text-sm mb-8">請使用具備管理員權限的帳號登入</p>
-          <button onClick={() => setAuthModalOpen(true)} className="w-full py-3 bg-[#4A4238] text-white font-bold rounded-xl hover:bg-[#4A4238]/80 transition-all shadow-md">
-            會員登入
+          <button onClick={() => { window.location.href = '/admin/login'; }} className="w-full py-3 bg-[#4A4238] text-white font-bold rounded-xl hover:bg-[#4A4238]/80 transition-all shadow-md">
+            前往後台登入
           </button>
           {authError && <p className="text-[#E08A8A] text-sm mt-4 font-bold">{authError}</p>}
         </div>
-        {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} onLoginSuccess={checkAdminRole} redirectPath="/admin" defaultMode="login" />}
       </div>
     );
   }
