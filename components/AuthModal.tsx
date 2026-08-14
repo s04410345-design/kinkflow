@@ -100,6 +100,9 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
 
   const handleOAuth = async (provider: 'google' | 'twitter' | 'x') => {
     try {
+      if (redirectPath) {
+        window.localStorage.setItem('kinkflow_auth_return_to', JSON.stringify({ path: redirectPath, expiresAt: Date.now() + 10 * 60 * 1000 }));
+      }
       const { error: err } = await supabase.auth.signInWithOAuth({
         provider: provider === 'twitter' ? 'x' : provider,
         options: {
