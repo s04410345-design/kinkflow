@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getAuthHeaders } from '@/lib/authHeaders';
 import { Comment, BlueBirdBadge } from '@/components/Comment';
 import { getPostActivityScore, getWafuColor } from '@/lib/constants';
 import type { DiscussionPost } from '@/lib/types';
@@ -208,7 +209,7 @@ export default function ProfileModal({
         const base64 = ev.target?.result as string;
         const res = await fetch('/api/uploadImage', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await getAuthHeaders(),
           body: JSON.stringify({ 
             base64, 
             fileName: `${(userId || userName.replace(/[^a-zA-Z0-9]/g, '_'))}-${Date.now()}.${file.name.split('.').pop()}` 
@@ -249,7 +250,7 @@ export default function ProfileModal({
         }
         const res = await fetch('/api/renameUser', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await getAuthHeaders(),
             body: JSON.stringify({ oldName, newName: targetName })
         });
         if (!res.ok) {
@@ -275,7 +276,7 @@ export default function ProfileModal({
     try {
       const updateRes = await fetch('/api/updateProfile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole })
       });
       if (!updateRes.ok) {

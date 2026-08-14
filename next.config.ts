@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // allowedDevOrigins: ['192.168.0.136', 'localhost'],
-  typescript: { ignoreBuildErrors: true },
-
+  // Keep production builds type-safe; configure environment variables in Vercel.
 };
 
 export default nextConfig;

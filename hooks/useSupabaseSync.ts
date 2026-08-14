@@ -106,12 +106,15 @@ export function useSupabaseSync() {
           setAppData(prev => ({ ...prev, discussions: grouped }));
         }
 
-        const { data: voteLogs } = await supabase.from('visitor_logs').select('details').eq('action_type', 'node_vote');
+        const { data: voteLogs } = await supabase
+          .from('visitor_logs')
+          .select('metadata_json')
+          .eq('action_type', 'node_vote');
         if (voteLogs) {
           const globalStats: Record<string, Record<string, number>> = {};
           const latestVotes = new Map<string, Record<string, string>>();
           voteLogs.forEach(log => {
-            const d = log.details;
+            const d = log.metadata_json as Record<string, any> | null;
             if (d && d.node_id && d.vote_type && d.userName) {
                latestVotes.set(`${d.userName}_${d.node_id}`, d);
             }

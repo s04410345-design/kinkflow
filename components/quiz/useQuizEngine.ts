@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { logToSupabase } from '../../lib/constants';
+import { getAuthHeaders } from '../../lib/authHeaders';
 import { normalizeScores } from '../../lib/scoreUtils';
 import type { QuizScores } from '../../lib/types';
 import { SCENARIO_GRAPH as DEFAULT_GRAPH, CARDS as DEFAULT_CARDS, TRAITS_DB as DEFAULT_TRAITS } from '../../lib/quizData';
@@ -145,9 +146,8 @@ export function useQuizEngine(userName: string, showToast: (msg: string) => void
       try {
         await fetch('/api/saveQuizResult', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await getAuthHeaders(),
           body: JSON.stringify({
-            userName,
             scores: normalizedScores,
             topTrait: topIds[0],
             aiAnalysis: data.reply
