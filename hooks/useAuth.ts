@@ -50,6 +50,20 @@ export function useAuth() {
       }
     });
 
+    const redirectAfterAuth = () => {
+      try {
+        const raw = window.localStorage.getItem('kinkflow_auth_return_to');
+        if (!raw) return;
+        const target = JSON.parse(raw) as { path?: string; expiresAt?: number };
+        window.localStorage.removeItem('kinkflow_auth_return_to');
+        if (target.path === '/admin' && target.expiresAt && target.expiresAt > Date.now() && window.location.pathname !== '/admin') {
+          window.location.replace('/admin');
+        }
+      } catch {
+        window.localStorage.removeItem('kinkflow_auth_return_to');
+      }
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setAuthMode('reset_password');
@@ -60,6 +74,7 @@ export function useAuth() {
         if (displayName) setUserName(displayName);
         setUserId(session.user.id);
         setIsGuest(false);
+        redirectAfterAuth();
       } else {
         const localUser = SafeStorage.get('kinkflow_user') as string | null;
         if (localUser) {
