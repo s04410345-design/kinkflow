@@ -73,17 +73,17 @@ create table if not exists public.forum_comments (
   deleted_at timestamptz
 );
 
-create table if not exists public.realtime_messages (
-  id uuid primary key default gen_random_uuid(),
-  room_id text not null default 'main-lobby',
-  author_id uuid references auth.users(id) on delete set null,
-  guest_name text,
-  message_text text not null default '' check (char_length(message_text) <= 240),
-  media_id uuid references public.media_assets(id) on delete set null,
+create table if not exists public.forum_post_media (
+  post_id uuid not null references public.forum_posts(id) on delete cascade,
+  media_id uuid not null references public.media_assets(id) on delete restrict,
+  sort_order integer not null default 0 check (sort_order >= 0),
   created_at timestamptz not null default now(),
-  deleted_at timestamptz,
-  constraint realtime_messages_has_content check (char_length(trim(message_text)) > 0 or media_id is not null)
+  primary key (post_id, media_id)
 );
+
+-- Lobby Chat 已存在正式表 public.lobby_chat。
+-- 本 foundation migration 不建立第二套 realtime_messages；聊天 adapter 與 rate-limit
+-- 將在後續 add-only migration 中直接相容既有 lobby_chat。
 
 create table if not exists public.reactions (
   id uuid primary key default gen_random_uuid(),
@@ -124,7 +124,7 @@ create table if not exists public.moderation_actions (
 create index if not exists articles_author_status_idx on public.articles (author_id, status, updated_at desc);
 create index if not exists forum_posts_category_created_idx on public.forum_posts (category_id, created_at desc);
 create index if not exists forum_comments_post_created_idx on public.forum_comments (post_id, created_at asc);
-create index if not exists realtime_messages_room_created_idx on public.realtime_messages (room_id, created_at desc);
+create index if not exists forum_post_media_media_idx on public.forum_post_media (media_id, post_id);
 create index if not exists reports_status_created_idx on public.reports (status, created_at desc);
 
 alter table public.author_verifications enable row level security;
@@ -133,7 +133,7 @@ alter table public.articles enable row level security;
 alter table public.forum_categories enable row level security;
 alter table public.forum_posts enable row level security;
 alter table public.forum_comments enable row level security;
-alter table public.realtime_messages enable row level security;
+alter table public.forum_post_media enable row level security;
 alter table public.reactions enable row level security;
 alter table public.reports enable row level security;
 alter table public.moderation_actions enable row level security;
@@ -203,15 +203,28 @@ for update to authenticated using (author_id = auth.uid()) with check (author_id
 create policy forum_comments_admin_delete on public.forum_comments
 for delete to authenticated using (is_forum_admin(auth.uid()));
 
-create policy realtime_messages_public_read on public.realtime_messages
-for select to anon, authenticated using (deleted_at is null);
-create policy realtime_messages_public_insert on public.realtime_messages
-for insert to anon, authenticated with check (
-  char_length(message_text) <= 240
-  and (author_id is null or author_id = auth.uid())
+create policy forum_post_media_public_read on public.forum_post_media
+for select to anon, authenticated using (
+  exists (
+    select 1 from public.forum_posts p
+    where p.id = post_id and p.status = 'published'
+  )
 );
-create policy realtime_messages_admin_delete on public.realtime_messages
-for delete to authenticated using (is_forum_admin(auth.uid()));
+create policy forum_post_media_author_manage on public.forum_post_media
+for all to authenticated using (
+  exists (
+    select 1 from public.forum_posts p
+    where p.id = post_id and p.author_id = auth.uid()
+  )
+) with check (
+  exists (
+    select 1 from public.forum_posts p
+    where p.id = post_id and p.author_id = auth.uid()
+  )
+);
+create policy forum_post_media_admin_manage on public.forum_post_media
+for all to authenticated using (is_forum_admin(auth.uid()))
+with check (is_forum_admin(auth.uid()));
 
 create policy media_public_read on public.media_assets
 for select to anon, authenticated using (status = 'active');
@@ -249,5 +262,5 @@ create policy moderation_admin_only on public.moderation_actions
 for all to authenticated using (is_forum_admin(auth.uid()))
 with check (admin_id = auth.uid() and is_forum_admin(auth.uid()));
 
--- Realtime publication is intentionally explicit and can be enabled after review.
--- alter publication supabase_realtime add table public.realtime_messages;
+-- Realtime publication for the existing public.lobby_chat remains explicit and is not
+-- changed by this migration. Enable it only after the Preview chat adapter is verified.
