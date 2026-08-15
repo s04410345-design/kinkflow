@@ -34,7 +34,7 @@ export async function proxy(request: NextRequest) {
     .eq('user_id', userData.user.id)
     .maybeSingle();
 
-  if (roleError || !role || role.role_level > 2) {
+  if (roleError || !role || !Number.isInteger(role.role_level) || role.role_level > 2) {
     return redirectToLogin(request);
   }
 
