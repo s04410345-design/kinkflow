@@ -10,13 +10,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { supabase } from '@/lib/supabase';
 import type { GraphNode, AppData, DiscussionPost } from '@/lib/types';
-import { logToSupabase, getPostActivityScore, getWafuColor } from '@/lib/constants';
-import { VOTE_TYPES, parseDiscussionDate, type VoteType } from '@/lib/contentModel';
+import { getPostActivityScore, getWafuColor } from '@/lib/constants';
+import { parseDiscussionDate } from '@/lib/contentModel';
 import { VoteModule, Comment } from '@/components/Comment';
 import AiChatbot from '@/components/AiChatbot';
 import { useQuizConfig } from '@/components/QuizContext';
+import { useDrawerActions } from '@/hooks/useDrawerActions';
 
 // ================= 資訊抽屜 =================
 export default function DrawerContent({ node, closeDrawer, userName, isGuest, appData, setAppData, onJump, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, goBack, canGoBack, initialLobbyTab }: {
@@ -133,330 +133,25 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     }
   }, [targetPostId, nodeTab, lobbyTab, node.level, hasScrolled]);
 
-  const addPost = async (text: string) => {
-    if (Date.now() - lastSubmitRef.current < 500) return; // 防止連點造成重複發布
-    
-    // 限制訪客只能在即時聊天室發言
-    if (isGuest && !(node.level === 0 && lobbyTab === 'chat')) {
-      showToast("🔒 訪客僅能在即時聊天室發言，註冊完整帳號即可建立討論版！");
-      return;
-    }
-    
-    lastSubmitRef.current = Date.now();
-    
-    showToast("防洗版偵測中...");
-
-    try {
-      const res = await fetch('/api/moderation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, author: userName })
-      });
-      const data = await res.json();
-
-      if (data.action === 'BLOCK') {
-        showToast(data.message || "含有違規內容，已阻擋發布。");
-        return;
-      }
-    } catch (e) {
-      console.error("Moderation error:", e);
-    }
-
-    const { data: inserted, error: insertErr } = await supabase.from('discussions').insert({
-      node_id: dbKey,
-      author: userName,
-      text,
-      timestamp: Date.now()
-    }).select().single();
-
-    if (insertErr) {
-      showToast("❌ 發布失敗：" + insertErr.message);
-      return;
-    }
-
-    const newPost: DiscussionPost = { id: inserted.id, author: userName, text, upvotes: 0, timestamp: Number(inserted.timestamp), replies: [] };
-    setAppData((prev: AppData) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (!next.discussions[dbKey]) next.discussions[dbKey] = [];
-      next.discussions[dbKey].push(newPost);
-      return next;
-    });
-  };
-
-  const updatePostInDb = (postId: string | number, updates: Record<string, unknown>) => {
-    supabase.from('discussions').update(updates).eq('id', postId).then(({error})=> { if(error) console.error(error) });
-  };
-
-  const handleDeletePost = async (postId: string | number, replyId?: string | number) => {
-    try {
-      if (replyId) {
-        // 刪除回覆
-        const post = posts.find(p => p.id === postId);
-        if (!post) return;
-        const newReplies = post.replies?.filter((r: any) => r.id !== replyId) || [];
-        updatePostInDb(postId, { replies: newReplies });
-        setAppData((prev: AppData) => {
-          const next = JSON.parse(JSON.stringify(prev));
-          const pIdx = next.discussions[dbKey]?.findIndex((p: DiscussionPost) => p.id === postId);
-          if (pIdx > -1) {
-            next.discussions[dbKey][pIdx].replies = newReplies;
-          }
-          return next;
-        });
-      } else {
-        // 刪除整則留言
-        await supabase.from('discussions').delete().eq('id', postId);
-        setAppData((prev: AppData) => {
-          const next = JSON.parse(JSON.stringify(prev));
-          next.discussions[dbKey] = next.discussions[dbKey]?.filter((p: DiscussionPost) => p.id !== postId) || [];
-          return next;
-        });
-      }
-      showToast("🗑️ 留言已刪除");
-    } catch (e) {
-      console.error(e);
-      showToast("❌ 刪除失敗");
-    }
-  };
-
-  const addReply = (postId: string | number, text: string) => {
-    // eslint-disable-next-line react-hooks/purity
-    if (Date.now() - lastSubmitRef.current < 500) return;
-    
-    // 限制訪客只能在即時聊天室回覆
-    if (isGuest && !(node.level === 0 && lobbyTab === 'chat')) {
-      showToast("🔒 訪客僅能在即時聊天室發言，註冊完整帳號即可回覆討論版！");
-      return;
-    }
-    
-    // eslint-disable-next-line react-hooks/purity
-    lastSubmitRef.current = Date.now();
-    setAppData((prev: AppData) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (next.discussions[dbKey]) {
-        const p = next.discussions[dbKey].find((x: DiscussionPost) => x.id === postId);
-        if (p) {
-          p.replies = p.replies || [];
-          p.replies.push({ id: Date.now() + Math.random(), author: userName, text, timestamp: Date.now(), upvotes: 0, emojis: [] });
-          updatePostInDb(postId, { replies: p.replies });
-
-          // 🔔 觸發小鈴鐺通知給被回覆的貼文作者
-          const targetAuthorName = p.author.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-          const cleanCurrentName = userName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-          
-          if (targetAuthorName && targetAuthorName !== cleanCurrentName) {
-            supabase
-              .from('profiles')
-              .select('id')
-              .or(`username.eq.${targetAuthorName},username.eq.${targetAuthorName} ☑️`)
-              .then(({ data: profilesArr }) => {
-                const targetProfile = profilesArr?.[0];
-                if (targetProfile?.id) {
-                  supabase.from('notifications').insert({
-                    user_id: targetProfile.id,
-                    type: 'reply',
-                    content: `💬 【${cleanCurrentName}】回覆了您的留言：「${text.slice(0, 30)}...」`,
-                    link_node: node.id,
-                    is_read: false
-                  }).then(() => {});
-                }
-              });
-          }
-        }
-      }
-      return next;
-    });
-  };
-
-  const toggleReplyUpvote = (postId: string | number, replyId: string | number) => {
-    setAppData((prev: AppData) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (!next.userEmojis) next.userEmojis = {};
-      const key = `reply_up_${replyId}`;
-      const hasVoted = next.userEmojis[key];
-      if (hasVoted) delete next.userEmojis[key];
-      else next.userEmojis[key] = true;
-      for (const k in next.discussions) {
-        next.discussions[k] = next.discussions[k].map((p: DiscussionPost) => {
-          if (p.id !== postId) return p;
-          const replies = (p.replies || []).map((r: { id: string | number; upvotes?: number }) => {
-            if (r.id !== replyId) return r;
-            return { ...r, upvotes: Math.max(0, (r.upvotes||0) + (hasVoted ? -1 : 1)) };
-          });
-          updatePostInDb(postId, { replies });
-          return { ...p, replies };
-        });
-      }
-      return next;
-    });
-  };
-
-  const addReplyEmoji = (postId: string | number, replyId: string | number, emoji: string) => {
-    setAppData((prev: AppData) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (!next.userEmojis) next.userEmojis = {};
-      const key = `reply_emoji_${replyId}_${emoji}`;
-      const hasReacted = next.userEmojis[key];
-      if (hasReacted) delete next.userEmojis[key];
-      else next.userEmojis[key] = true;
-      for (const k in next.discussions) {
-        next.discussions[k] = next.discussions[k].map((p: DiscussionPost) => {
-          if (p.id !== postId) return p;
-          const replies = (p.replies || []).map((r: { id: string | number; emojis?: { char: string; count: number }[] }) => {
-            if (r.id !== replyId) return r;
-            const emojis = r.emojis || [];
-            const exist = emojis.find((e: { char: string }) => e.char === emoji);
-            if (hasReacted) { if (exist) exist.count = Math.max(0, exist.count - 1); }
-            else { if (exist) exist.count++; else emojis.push({ char: emoji, count: 1 }); }
-            return { ...r, emojis: emojis.filter((e: { count: number }) => e.count > 0) };
-          });
-          updatePostInDb(postId, { replies });
-          return { ...p, replies };
-        });
-      }
-      return next;
-    });
-  };
-
-  const toggleUpvote = (postId: string | number) => {
-    setAppData((prev: AppData) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (!next.userUpvotes) next.userUpvotes = {};
-      
-      const hasVoted = next.userUpvotes[postId];
-      if (hasVoted) delete next.userUpvotes[postId];
-      else next.userUpvotes[postId] = true;
-      
-      for(const key in next.discussions) {
-        next.discussions[key] = next.discussions[key].map((p: DiscussionPost) => {
-          if (p.id === postId) {
-            const newUpvotes = Math.max(0, p.upvotes + (hasVoted ? -1 : 1));
-            updatePostInDb(postId, { upvotes: newUpvotes });
-            return {...p, upvotes: newUpvotes};
-          }
-          return p;
-        });
-      }
-      return next;
-    });
-  };
-
-  const addEmoji = (postId: string | number, emoji: string) => {
-    setAppData((prev: AppData) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      if (!next.userEmojis) next.userEmojis = {};
-      const userEmojiKey = `${postId}_${emoji}`;
-      const hasReacted = next.userEmojis[userEmojiKey];
-      
-      if (hasReacted) delete next.userEmojis[userEmojiKey];
-      else next.userEmojis[userEmojiKey] = true;
-
-      for(const key in next.discussions) {
-        next.discussions[key] = next.discussions[key].map((p: DiscussionPost) => {
-          if(p.id !== postId) return p;
-          const emojis = p.emojis || [];
-          const exist = emojis.find((e: { char: string }) => e.char === emoji);
-          
-          if (hasReacted) {
-             if (exist) exist.count = Math.max(0, exist.count - 1);
-          } else {
-             if(exist) exist.count++; else emojis.push({char: emoji, count: 1});
-          }
-          const finalEmojis = emojis.filter((e: { count: number }) => e.count > 0);
-          updatePostInDb(postId, { emojis: finalEmojis });
-          return {...p, emojis: finalEmojis};
-        });
-      }
-      return next;
-    });
-  };
-
-  const castVote = async (voteType: string) => {
-    if (!VOTE_TYPES.includes(voteType as VoteType)) {
-      showToast('投票選項無效，請重新選擇。');
-      return;
-    }
-    if (isGuest) {
-      showToast("🔒 請註冊完整帳號以參與節點喜好投票！");
-      return;
-    }
-
-    setAppData((prev: AppData) => {
-      const nextStats = JSON.parse(JSON.stringify(prev.stats));
-      const nextUserVotes = { ...prev.userVotes };
-
-      if (!nextStats[node.id]) nextStats[node.id] = { need:0, like:0, curious:0, neutral:0, nope:0 };
-      
-      const oldVote = nextUserVotes[node.id];
-      // 點相同選項 → 取消投票
-      if (oldVote === voteType) {
-        nextStats[node.id][oldVote] = Math.max(0, nextStats[node.id][oldVote] - 1);
-        delete nextUserVotes[node.id];
-        return { ...prev, stats: nextStats, userVotes: nextUserVotes };
-      }
-
-      // 換票：減舊票
-      if (oldVote) {
-        nextStats[node.id][oldVote] = Math.max(0, nextStats[node.id][oldVote] - 1);
-      }
-      
-      nextUserVotes[node.id] = voteType;
-      nextStats[node.id][voteType]++;
-
-      return { ...prev, stats: nextStats, userVotes: nextUserVotes };
-    });
-
-    // ── Supabase：UPSERT 到 node_votes（user + node 唯一一筆，取最新）──
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const oldVoteBefore = appData.userVotes[node.id];
-      const isCancelling = oldVoteBefore === voteType;
-
-      // UPSERT：若存在就更新，若不存在就插入（on_conflict: user_id, node_id）
-      if (isCancelling) {
-        // 取消投票 → 刪除該筆記錄
-        await supabase.from('node_votes')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('node_id', node.id);
-      } else {
-        const { error: voteError } = await supabase.from('node_votes')
-          .upsert(
-            { user_id: user.id, node_id: node.id, vote_type: voteType, updated_at: new Date().toISOString() },
-            { onConflict: 'user_id,node_id' }
-          );
-        if (voteError) {
-          console.error('node vote write failed', voteError);
-          showToast('投票尚未寫入，請稍後再試。');
-          return;
-        }
-      }
-
-      // 寫入完成後才重新計算全網統計，避免讀到舊資料
-      const { data: votes } = await supabase.from('node_votes')
-        .select('vote_type')
-        .eq('node_id', node.id);
-      if (!votes) return;
-      const fresh = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 } as Record<string, number>;
-      votes.forEach((vote) => {
-        if (vote.vote_type && fresh[vote.vote_type] !== undefined) fresh[vote.vote_type]++;
-      });
-      // 更新 quiz_content 的全網統計；顯示層仍以 node_votes 為準，這裡只保留相容快取。
-      const { data: statsArr } = await supabase
-        .from('quiz_content')
-        .select('content')
-        .eq('key_name', 'quiz_node_stats');
-      const curStats = ((statsArr?.[0]?.content) || {}) as Record<string, Record<string, number>>;
-      curStats[node.id] = fresh;
-      await supabase
-        .from('quiz_content')
-        .upsert({ key_name: 'quiz_node_stats', content: curStats }, { onConflict: 'key_name' });
-    }
-
-    logToSupabase('node_vote', { node_id: node.id, node_label: node.label, vote_type: voteType, userName });
-    showToast('投票狀態已更新！');
-
-  };
+  const {
+    addPost,
+    handleDeletePost,
+    addReply,
+    toggleReplyUpvote,
+    addReplyEmoji,
+    toggleUpvote,
+    addEmoji,
+    castVote,
+  } = useDrawerActions({
+    node,
+    dbKey,
+    posts,
+    userName,
+    isGuest,
+    lobbyTab,
+    setAppData,
+    showToast,
+  });
 
   const lobbyPosts = node.level === 0 ? [
     ...(appData.discussions['lobby_chat']||[]).map((p: DiscussionPost) => ({...p, nodeName: '即時聊天', nodeId: 'lobby_chat'})),

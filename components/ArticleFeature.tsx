@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GraphNode } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
+import { buildLegacyArticles, fetchPublishedArticles, formatArticleDate, type ArticleItem } from '@/lib/data/articles';
 
 type ArticleFeatureProps = {
   nodesData: GraphNode[];
@@ -10,56 +10,8 @@ type ArticleFeatureProps = {
   onBackToNode?: (nodeId: string) => void;
 };
 
-type ArticleItem = {
-  id: string;
-  nodeId: string;
-  title: string;
-  excerpt: string;
-  content: string;
-  label: string;
-  color: string;
-  createdAt?: string | null;
-  source: 'live' | 'legacy';
-};
-
-type LiveArticle = {
-  id: string;
-  title: string;
-  excerpt: string;
-  body_json: unknown;
-  created_at: string;
-  article_node_links?: { node_id: string }[];
-};
-
-function bodyToMarkdown(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (!value || typeof value !== 'object') return '';
-  const record = value as Record<string, unknown>;
-  for (const key of ['markdown', 'content', 'text', 'body']) {
-    if (typeof record[key] === 'string') return record[key] as string;
-  }
-  return '';
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-TW');
-}
-
 function useLegacyArticles(nodesData: GraphNode[]): ArticleItem[] {
-  return useMemo(() => nodesData
-    .filter((node) => node.level > 0 && Boolean(node.detail_text))
-    .map((node) => ({
-      id: `legacy-${node.id}`,
-      nodeId: node.id,
-      title: node.label,
-      excerpt: node.desc || '本主題的深度心理學與專題筆記。',
-      content: node.detail_text || '',
-      label: node.label,
-      color: node.color || '#D9B650',
-      source: 'legacy' as const,
-    })), [nodesData]);
+  return useMemo(() => buildLegacyArticles(nodesData), [nodesData]);
 }
 
 export default function ArticleFeature({ nodesData, initialNodeId = null, onBackToNode }: ArticleFeatureProps) {
@@ -68,43 +20,18 @@ export default function ArticleFeature({ nodesData, initialNodeId = null, onBack
   const [isLoading, setIsLoading] = useState(true);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [nodeFilter, setNodeFilter] = useState<string>(initialNodeId || 'all');
-  const nodes = useMemo(() => new Map(nodesData.map((node) => [node.id, node])), [nodesData]);
-
   useEffect(() => {
     let active = true;
     const load = async () => {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('articles')
-        .select('id,title,excerpt,body_json,created_at,article_node_links(node_id)')
-        .eq('status', 'published')
-        .order('published_at', { ascending: false, nullsFirst: false })
-        .limit(100);
+      const nextArticles = await fetchPublishedArticles(nodesData);
       if (!active) return;
-      if (error || !data?.length) {
-        setLiveArticles([]);
-      } else {
-        setLiveArticles((data as LiveArticle[]).map((article) => {
-          const nodeId = article.article_node_links?.[0]?.node_id || '';
-          const node = nodes.get(nodeId);
-          return {
-            id: article.id,
-            nodeId,
-            title: article.title,
-            excerpt: article.excerpt || '認證作者的深度專題文章。',
-            content: bodyToMarkdown(article.body_json),
-            label: node?.label || '未分類專題',
-            color: node?.color || '#8A6A1F',
-            createdAt: article.created_at,
-            source: 'live' as const,
-          };
-        }));
-      }
+      setLiveArticles(nextArticles);
       setIsLoading(false);
     };
     void load();
     return () => { active = false; };
-  }, [nodes]);
+  }, [nodesData]);
 
   const articles = liveArticles.length ? liveArticles : legacyArticles;
   const filteredArticles = useMemo(() => {
@@ -126,7 +53,7 @@ export default function ArticleFeature({ nodesData, initialNodeId = null, onBack
               <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-bold text-[#8A6A1F]"><span className="rounded-full bg-[#FFF4C8] px-3 py-1">專題誌</span><span className="rounded-full bg-[#F5EFE6] px-3 py-1">{selectedArticle.label}</span><span className="rounded-full bg-[#EEF4EA] px-3 py-1">{selectedArticle.source === 'live' ? '正式文章' : '舊資料預覽'}</span></div>
               <h1 className="text-3xl font-black leading-tight md:text-5xl">{selectedArticle.title}</h1>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-[#4A4238]/70">{selectedArticle.excerpt}</p>
-              {formatDate(selectedArticle.createdAt) && <p className="mt-3 text-xs text-[#4A4238]/50">發布於 {formatDate(selectedArticle.createdAt)}</p>}
+              {formatArticleDate(selectedArticle.createdAt) && <p className="mt-3 text-xs text-[#4A4238]/50">發布於 {formatArticleDate(selectedArticle.createdAt)}</p>}
             </header>
             <div className="prose prose-stone max-w-none px-5 py-7 md:px-10 md:py-10"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArticle.content || '文章內容準備中。'}</ReactMarkdown></div>
             <footer className="border-t border-[#D1C6B4]/40 bg-[#FDFBF7]/70 px-5 py-5 text-sm text-[#4A4238]/70 md:px-10">專題文章與討論留言分開管理；未來會在此加入收藏、檢舉、相關討論與留言入口。</footer>

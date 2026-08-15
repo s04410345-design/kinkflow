@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { GraphNode, GraphLink, AppData, VoteStats } from '@/lib/types';
 import { parseDiscussionDate, VOTE_TYPES, type VoteType } from '@/lib/contentModel';
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
+import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 
 const INITIALIZATION_FALLBACK_MS = 8_000;
@@ -92,7 +93,7 @@ export function useSupabaseSync() {
       try {
         // These reads are independent. Running them together prevents one slow table
         // from serially delaying every other part of the first paint.
-        const [sheetConfigResult, mindmapResult, nodeImagesResult, layoutResult, discussionsResult, nodeVotesResult] = await Promise.all([
+        const [sheetConfigResult, mindmapResult, nodeImagesResult, layoutResult, discussionsResult, nodeVotesResult, lobbyChatRows] = await Promise.all([
           runQuery<ContentRow[]>('google_sheets_config', supabase.from('quiz_content').select('content').eq('key_name', 'google_sheets_config')),
           runQuery<ContentRow[]>('mindmap_data', supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data')),
           runQuery<ContentRow[]>('node_images', supabase.from('quiz_content').select('content').eq('key_name', 'node_images')),
@@ -100,6 +101,7 @@ export function useSupabaseSync() {
           runQuery<DiscussionRow[]>('discussions', supabase.from('discussions').select('*').limit(500)),
           // Only fetch fields needed for public aggregation. Do not expose user_id to the client.
           runQuery<VoteRow[]>('node_votes', supabase.from('node_votes').select('node_id, vote_type').limit(5000)),
+          fetchLobbyChat(200),
         ]);
 
         if (cancelled) return;
@@ -154,6 +156,7 @@ export function useSupabaseSync() {
         const dbDiscussions = discussionsResult.data;
         if (Array.isArray(dbDiscussions)) {
           const grouped = groupDiscussionRows(dbDiscussions);
+          if (lobbyChatRows.length > 0) grouped.lobby_chat = lobbyChatRows.map(lobbyChatToDiscussionPost);
           Object.values(grouped).forEach(posts => {
             posts.sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
           });

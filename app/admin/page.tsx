@@ -8,10 +8,8 @@
  * ============================================================
  */
 "use client";
-// @ts-nocheck
 
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
 import Chart from 'chart.js/auto';
 import Papa from 'papaparse';
 import VisitorLogsPanel from '@/components/admin/VisitorLogsPanel';
@@ -24,6 +22,8 @@ import StyleConfigModal from '@/components/StyleConfigModal';
 import GraphView from '@/components/GraphView';
 import type { GraphNode, GraphLink } from '@/lib/types';
 import { graphNodes as defaultGraphNodes, quizQuestions as defaultQuizQuestions } from '@/lib/constants';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { clearNodeDiscussions, clearVisitorLogs, deleteDiscussion, fetchAdminCmsData, fetchAdminLogs, fetchAdminUsers, removeAdminRole, saveAdminContent, upsertAdminRole } from '@/lib/data/admin';
 
 interface LogEntry {
   id: string;
@@ -31,7 +31,7 @@ interface LogEntry {
   action_type: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   details: any;
-  device_id?: string;
+  device_id?: string | null;
 }
 
 const TRAIT_LABELS: Record<string, string> = {
@@ -76,10 +76,8 @@ function Collapsible({ title, subtitle, count, defaultOpen = false, accent, chil
 }
 
 export default function AdminDashboard() {
-  const [isAuth, setIsAuth] = useState(false);
-  const [adminLevel, setAdminLevel] = useState<number | null>(null);
-  const [adminEmail, setAdminEmail] = useState<string>('');
-  const [authError, setAuthError] = useState('');
+  const { isAuth, adminLevel, adminEmail, authError, isChecking, logout } = useAdminAuth();
+  const handleLogout = logout;
 
   const [activeTab, setActiveTab] = useState<'analytics' | 'cms_nodes' | 'cms_quiz' | 'users' | 'discussions' | 'comments' | 'admins'>('analytics');
   const [quizJson, setQuizJson] = useState('[]');
@@ -243,86 +241,31 @@ export default function AdminDashboard() {
 
   const fetchCmsData = async () => {
     setLoading(true);
-    const { data: mdArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data');
-    const md = mdArr?.[0];
-    if (md?.content && Array.isArray(md.content) && md.content.length >= 10) {
-      setMindmapJson(JSON.stringify(md.content, null, 2));
-    } else {
-      setMindmapJson(JSON.stringify(defaultGraphNodes, null, 2));
+    try {
+      const cms = await fetchAdminCmsData(defaultGraphNodes, defaultQuizQuestions);
+      setMindmapJson(cms.mindmapJson);
+      setQuizJson(cms.quizJson);
+      setSheetConfig(cms.sheetConfig);
+      setNodeImages(cms.nodeImages);
+      setNodeNameMap(cms.nodeNameMap);
+      setNodeParentMap(cms.nodeParentMap);
+      setNodeLevelMap(cms.nodeLevelMap);
+      setDiscussions(cms.discussions as typeof discussions);
+    } catch (error) {
+      console.error('CMS 載入失敗', error);
+      setMessage('❌ 後台資料載入失敗');
+    } finally {
+      setLoading(false);
     }
-    
-    const { data: qdArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'quiz_system_config');
-    const qd = qdArr?.[0];
-    if (qd?.content) {
-      setQuizJson(JSON.stringify(qd.content, null, 2));
-    } else {
-      setQuizJson(JSON.stringify(defaultQuizQuestions, null, 2));
-    }
-    const { data: scArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'google_sheets_config');
-    const sc = scArr?.[0];
-    if (sc) setSheetConfig(sc.content);
-
-    const { data: niArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'node_images');
-    const ni = niArr?.[0];
-    if (ni && ni.content) setNodeImages(ni.content as Record<string, { icon?: string, image?: string }>);
-
-    const nameMap: Record<string, string> = {};
-    const parentMap: Record<string, string> = {};
-    const levelMap: Record<string, number> = {};
-
-    if (md && md.content) {
-      md.content.forEach((n: any) => {
-        if (n.id && n.label) nameMap[n.id] = n.label;
-        if (n.id && n.parent) parentMap[n.id] = n.parent;
-        if (n.id && n.level !== undefined) levelMap[n.id] = n.level;
-      });
-    }
-    
-    nameMap['lobby_board'] = '探索大廳-精華留言';
-    nameMap['lobby_chat'] = '探索大廳-即時聊天';
-    if (sc && sc.content?.mindmap) {
-      try {
-        const res = await fetch(`/api/sheet?url=${encodeURIComponent(sc.content.mindmap)}`);
-        let csvData = await res.text();
-        if (csvData.charCodeAt(0) === 0xFEFF) csvData = csvData.substring(1);
-        const parsed = Papa.parse(csvData, { header: true, skipEmptyLines: true });
-        parsed.data.forEach((row: any) => {
-          const newRow: Record<string, string | number> = {};
-          for (const key in row) {
-            newRow[key.trim()] = row[key];
-          }
-          const id = (typeof newRow['代號'] === 'string' ? newRow['代號'] : typeof newRow.id === 'string' ? newRow.id : '').trim();
-          const label = (typeof newRow['名稱'] === 'string' ? newRow['名稱'] : typeof newRow.label === 'string' ? newRow.label : '').trim();
-          const parent = (typeof newRow['父節點'] === 'string' ? newRow['父節點'] : typeof newRow.parent === 'string' ? newRow.parent : '').trim();
-          const level = parseInt(typeof newRow['階層'] === 'string' ? newRow['階層'] : typeof newRow['層級'] === 'string' ? newRow['層級'] : typeof newRow.level === 'string' ? newRow.level : '0');
-          if (id && label) nameMap[id] = label;
-          if (id && parent) parentMap[id] = parent;
-          if (id) levelMap[id] = level;
-        });
-      } catch (err) { console.error("Failed to fetch sheet:", err); }
-    }
-    setNodeNameMap(nameMap);
-    setNodeParentMap(parentMap);
-    setNodeLevelMap(levelMap);
-
-    const { data: discData } = await supabase.from('discussions').select('*');
-    if (discData) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const grouped: Record<string, any[]> = {};
-      discData.forEach(d => {
-        if (!grouped[d.node_id]) grouped[d.node_id] = [];
-        grouped[d.node_id].push(d);
-      });
-      setDiscussions(grouped);
-    }
-    setLoading(false);
   };
 
   const fetchStats = async () => {
     setStatsLoading(true);
-    const { data } = await supabase.from('visitor_logs').select('*').order('created_at', { ascending: false }).limit(1000);
-    if (data) setLogs(data as LogEntry[]);
-    setStatsLoading(false);
+    try {
+      setLogs(await fetchAdminLogs());
+    } finally {
+      setStatsLoading(false);
+    }
   };
 
   useEffect(() => { 
@@ -338,28 +281,27 @@ export default function AdminDashboard() {
 
   const fetchAdmins = async () => {
     setAdminLoading(true);
-    const { data } = await supabase.from('admin_roles').select('user_id, role_level, granted_by, created_at').order('role_level', { ascending: true });
-    if (data) setAdminUsers(data);
-    setAdminLoading(false);
+    try {
+      setAdminUsers(await fetchAdminUsers());
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAdminEmail.trim()) return;
     setAdminLoading(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const { error } = await supabase.from('admin_roles').upsert({ user_id: newAdminEmail.trim(), role_level: newAdminLevel, granted_by: sessionData.session?.user.id || null });
-      if (error) throw error;
+    const result = await upsertAdminRole(newAdminEmail.trim(), newAdminLevel);
+    if (result.ok) {
       setNewAdminEmail('');
       setNewAdminLevel(2);
-      fetchAdmins();
+      await fetchAdmins();
       setMessage('✅ 管理員權限更新成功');
-    } catch (err) {
-      setMessage('❌ 新增管理員失敗');
-    } finally {
-      setAdminLoading(false);
+    } else {
+      setMessage(`❌ 新增管理員失敗：${result.message || ''}`);
     }
+    setAdminLoading(false);
   };
 
   const handleRemoveAdmin = async (email: string) => {
@@ -369,16 +311,14 @@ export default function AdminDashboard() {
     }
     if (!confirm(`確定要移除 ${email} 的管理員權限嗎？`)) return;
     setAdminLoading(true);
-    try {
-      const { error } = await supabase.from('admin_roles').delete().eq('user_id', email);
-      if (error) throw error;
-      fetchAdmins();
+    const result = await removeAdminRole(email);
+    if (result.ok) {
+      await fetchAdmins();
       setMessage('✅ 管理員權限已移除');
-    } catch (err) {
-      setMessage('❌ 移除管理員失敗');
-    } finally {
-      setAdminLoading(false);
+    } else {
+      setMessage(`❌ 移除管理員失敗：${result.message || ''}`);
     }
+    setAdminLoading(false);
   };
 
   // ===== Supabase Realtime 即時訂閱關閉，避免 Vercel 報錯 =====
@@ -396,56 +336,6 @@ export default function AdminDashboard() {
     //   .subscribe();
     // return () => { supabase.removeChannel(channel); };
   }, [isAuth]);
-
-  const checkAdminRole = async (user: any) => {
-    if (!user || !user.email) return;
-    try {
-      const { data, error } = await supabase.from('admin_roles').select('role_level').eq('user_id', user.id).single();
-      if (error || !data) {
-        setAuthError('❌ 此帳號無管理員權限');
-        await supabase.auth.signOut();
-        setIsAuth(false);
-        setAdminLevel(null);
-      } else {
-        setAdminEmail(user.id);
-        setAdminLevel(data.role_level);
-        setIsAuth(true);
-        setAuthError('');
-      }
-    } catch (err) {
-      setAuthError('❌ 權限驗證失敗');
-    }
-  };
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        checkAdminRole(session.user);
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        checkAdminRole(session.user);
-      } else {
-        setIsAuth(false);
-        setAdminLevel(null);
-      }
-    });
-    const handleOpenModal = () => setShowStyleConfigModal(true);
-    window.addEventListener('open_style_config_modal', handleOpenModal);
-
-    return () => { 
-      subscription.unsubscribe();
-      window.removeEventListener('open_style_config_modal', handleOpenModal);
-    };
-  }, []);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
-
-
 
   // ===== 散佈圖 =====
   useEffect(() => {
@@ -536,42 +426,23 @@ export default function AdminDashboard() {
 
   const handleDeletePost = async (postId: string | number) => {
     if (!confirm('確定要刪除這筆留言嗎？這將會連同底下的回覆一起刪除。')) return;
-    try {
-      const { error } = await supabase.from('discussions').delete().eq('id', postId);
-      if (error) throw error;
-      alert('刪除成功');
-      fetchCmsData();
-    } catch (err) {
-      console.error('刪除失敗', err);
-      alert('刪除失敗');
-    }
+    const result = await deleteDiscussion(postId);
+    if (result.ok) { alert('刪除成功'); await fetchCmsData(); }
+    else alert(`刪除失敗：${result.message || ''}`);
   };
 
   const handleClearNodePosts = async (nodeId: string) => {
     if (!confirm(`確定要清空「${nodeNameMap[nodeId] || nodeId}」的所有留言嗎？此操作無法復原！`)) return;
-    try {
-      const { error } = await supabase.from('discussions').delete().eq('node_id', nodeId);
-      if (error) throw error;
-      alert('清空成功');
-      fetchCmsData();
-    } catch (err) {
-      console.error('清空失敗', err);
-      alert('清空失敗');
-    }
+    const result = await clearNodeDiscussions(nodeId);
+    if (result.ok) { alert('清空成功'); await fetchCmsData(); }
+    else alert(`清空失敗：${result.message || ''}`);
   };
 
   const handleClearAllLogs = async () => {
     if (!confirm('警告：確定要清空所有的訪客測驗與互動紀錄嗎？（不含留言）此操作無法復原！')) return;
-    try {
-      // 修正：Supabase 無法用 neq('id', 0) 刪除 uuid，改用不等於無效值
-      const { error } = await supabase.from('visitor_logs').delete().not('id', 'is', null);
-      if (error) throw error;
-      alert('紀錄清空成功');
-      fetchStats();
-    } catch (err) {
-      console.error('清空失敗', err);
-      alert('清空失敗');
-    }
+    const result = await clearVisitorLogs();
+    if (result.ok) { alert('紀錄清空成功'); await fetchStats(); }
+    else alert(`清空失敗：${result.message || ''}`);
   };
 
   const handleSave = async (keyName: string, data: unknown, isJson = true) => {
@@ -580,18 +451,10 @@ export default function AdminDashboard() {
       return;
     }
     setSaving(true); setMessage('');
-    try {
-      const parsed = isJson ? JSON.parse(data as string) : data;
-      const { error } = await supabase.from('quiz_content').upsert({ key_name: keyName, content: parsed }, { onConflict: 'key_name' });
-      if (error) throw error;
-      setMessage('✅ 儲存成功！前台網站已同步更新。');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
-      setMessage(`❌ 儲存失敗：${err.message}`);
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMessage(''), 5000);
-    }
+    const result = await saveAdminContent(keyName, data, isJson);
+    setMessage(result.ok ? '✅ 儲存成功！前台網站已同步更新。' : `❌ 儲存失敗：${result.message || ''}`);
+    setSaving(false);
+    setTimeout(() => setMessage(''), 5000);
   };
 
   // ===== 計算統計 =====
@@ -733,6 +596,10 @@ export default function AdminDashboard() {
       {label}
     </button>
   );
+
+  if (isChecking) {
+    return <div className="h-screen w-screen flex items-center justify-center" style={{ background: '#FDFBF7', color: '#4A4238' }}>正在確認後台權限…</div>;
+  }
 
   if (!isAuth) {
     return (

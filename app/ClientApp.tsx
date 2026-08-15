@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { GraphNode } from '@/lib/types';
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
+import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
 import { SafeStorage } from '@/lib/constants';
 import { graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -192,9 +193,13 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     const fallbackInterval = setInterval(async () => {
       if (document.visibilityState === 'hidden') return;
       try {
-        const { data: dbDiscussions } = await supabase.from('discussions').select('*').limit(500);
+        const [{ data: dbDiscussions }, lobbyChatRows] = await Promise.all([
+          supabase.from('discussions').select('*').limit(500),
+          fetchLobbyChat(200),
+        ]);
         if (Array.isArray(dbDiscussions)) {
           const cleanedDiscussions = groupDiscussionRows(dbDiscussions as DiscussionRow[]);
+          if (lobbyChatRows.length > 0) cleanedDiscussions.lobby_chat = lobbyChatRows.map(lobbyChatToDiscussionPost);
           setAppData(prev => {
             const next = { ...prev, discussions: { ...prev.discussions } };
 
