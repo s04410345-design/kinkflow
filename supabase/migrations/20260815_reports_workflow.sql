@@ -78,21 +78,21 @@ begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'forum_posts' and policyname = 'forum_posts_admin_moderate') then
     create policy forum_posts_admin_moderate on public.forum_posts
     for update to authenticated
-    using (is_forum_admin(auth.uid()))
-    with check (is_forum_admin(auth.uid()));
+    using (private.is_forum_admin(auth.uid()))
+    with check (private.is_forum_admin(auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'forum_comments' and policyname = 'forum_comments_admin_moderate') then
     create policy forum_comments_admin_moderate on public.forum_comments
     for update to authenticated
-    using (is_forum_admin(auth.uid()))
-    with check (is_forum_admin(auth.uid()));
+    using (private.is_forum_admin(auth.uid()))
+    with check (private.is_forum_admin(auth.uid()));
   end if;
 end $$;
 
 create policy report_events_admin_only on public.report_events
 for all to authenticated
-using (is_forum_admin(auth.uid()))
-with check (admin_id = auth.uid() and is_forum_admin(auth.uid()));
+using (private.is_forum_admin(auth.uid()))
+with check (admin_id = auth.uid() and private.is_forum_admin(auth.uid()));
 
 comment on table public.report_events is 'Admin-only audit trail for report status and moderation decisions.';
 comment on column public.reports.category is 'Structured report reason category selected by the reporter.';
