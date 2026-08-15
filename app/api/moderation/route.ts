@@ -34,12 +34,12 @@ export async function POST(request: Request) {
 
     const rawText = typeof body.text === 'string' ? body.text : '';
     if (rawText.trim().length > MAX_TEXT_LENGTH) {
-      return NextResponse.json({ action: 'BLOCK', message: `留言字數不能超過 ${MAX_TEXT_LENGTH} 字。` });
+      return NextResponse.json({ action: 'BLOCK', message: `留言字數不能超過 ${MAX_TEXT_LENGTH} 字。` }, { status: 400 });
     }
 
     const text = clampText(rawText, MAX_TEXT_LENGTH).replace(/\u0000/g, '');
     if (!text) {
-      return NextResponse.json({ action: 'BLOCK', message: '發言內容不能為空。' });
+      return NextResponse.json({ action: 'BLOCK', message: '發言內容不能為空。' }, { status: 400 });
     }
 
     return NextResponse.json({ action: 'ALLOW', message: '審查通過' });
