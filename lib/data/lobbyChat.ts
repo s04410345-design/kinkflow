@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { SafeStorage } from '@/lib/constants';
 import type { DiscussionPost } from '@/lib/types';
 
 export type LobbyChatMessage = {
@@ -42,8 +43,21 @@ export async function createLobbyChatMessage(text: string, mediaUrl?: string | n
   if (!normalized || normalized.length > 240) return { ok: false, message: '聊天內容必須為 1 至 240 字。' };
 
   const { data: userData } = await supabase.auth.getUser();
+  const isAuthenticated = Boolean(userData.user?.id);
+  let guestKey: string | null = null;
+  if (!isAuthenticated) {
+    guestKey = SafeStorage.get('kinkflow_lobby_guest_key') as string | null;
+    if (!guestKey || guestKey.length < 16) {
+      guestKey = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `guest_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+      SafeStorage.set('kinkflow_lobby_guest_key', guestKey);
+    }
+  }
+
   const { error } = await supabase.from('lobby_chat').insert({
     author_id: userData.user?.id || null,
+    guest_key: guestKey,
     text: normalized,
     media_url: mediaUrl || null,
   });

@@ -7,8 +7,10 @@
 
 import { useEffect, useState } from 'react';
 import AdminRoleManagementPanel from '@/components/admin/AdminRoleManagementPanel';
+import AuthorReviewPanel from '@/components/admin/AuthorReviewPanel';
 import AnalyticsDashboardPanel from '@/components/admin/AnalyticsDashboardPanel';
 import DiscussionManagementPanel from '@/components/admin/DiscussionManagementPanel';
+import ReportReviewPanel from '@/components/admin/ReportReviewPanel';
 import MemberManagementPanel from '@/components/admin/MemberManagementPanel';
 import NodeContentEditor from '@/components/admin/NodeContentEditor';
 import QuizContentEditor from '@/components/admin/QuizContentEditor';
@@ -16,7 +18,7 @@ import VisitorLogsPanel from '@/components/admin/VisitorLogsPanel';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { useAdminWorkspace } from '@/hooks/useAdminWorkspace';
 
-type AdminTab = 'analytics' | 'cms_nodes' | 'cms_quiz' | 'users' | 'discussions' | 'comments' | 'admins';
+type AdminTab = 'analytics' | 'cms_nodes' | 'cms_quiz' | 'users' | 'discussions' | 'reports' | 'comments' | 'authors' | 'admins';
 
 export default function AdminDashboard() {
   const { isAuth, adminLevel, adminEmail, authError, isChecking, logout } = useAdminAuth();
@@ -87,7 +89,9 @@ export default function AdminDashboard() {
             {tabButton('cms_quiz', '測驗系統編輯')}
             {tabButton('users', '會員管理')}
             {tabButton('discussions', '討論區與留言管理')}
+            {tabButton('reports', '檢舉審核')}
             {tabButton('comments', '訪客與互動紀錄')}
+            {tabButton('authors', '作者申請審核')}
             {adminLevel === 1 && tabButton('admins', '管理員設定')}
           </div>
         </div>
@@ -132,6 +136,7 @@ export default function AdminDashboard() {
         ))}
 
         {activeTab === 'discussions' && <DiscussionManagementPanel />}
+        {activeTab === 'reports' && <ReportReviewPanel onMessage={workspace.setMessage} />}
         {activeTab === 'comments' && (
           <VisitorLogsPanel
             logs={workspace.logs}
@@ -141,6 +146,7 @@ export default function AdminDashboard() {
           />
         )}
         {activeTab === 'users' && <MemberManagementPanel />}
+        {activeTab === 'authors' && <AuthorReviewPanel onMessage={workspace.setMessage} />}
         {activeTab === 'admins' && adminLevel === 1 && (
           <AdminRoleManagementPanel
             enabled={isAuth && adminLevel === 1}

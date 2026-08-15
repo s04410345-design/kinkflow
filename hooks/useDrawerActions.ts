@@ -3,6 +3,7 @@ import { createDiscussion, deleteDiscussionById, getCurrentUserId, notifyReply, 
 import type { AppData, DiscussionPost, GraphNode, Reply, EmojiCount, VoteStats } from '@/lib/types';
 import { logToSupabase } from '@/lib/constants';
 import { VOTE_TYPES, type VoteType } from '@/lib/contentModel';
+import { createLobbyChatMessage, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
 
 type DrawerActionParams = {
   node: GraphNode;
@@ -48,6 +49,33 @@ export function useDrawerActions({ node, dbKey, posts, userName, isGuest, lobbyT
       }
     } catch (error) {
       console.error('Moderation error:', error);
+    }
+
+    if (node.level === 0 && lobbyTab === 'chat') {
+      const result = await createLobbyChatMessage(text);
+      if (!result.ok) {
+        showToast(`❌ ${result.message || '聊天訊息發送失敗。'}`);
+        return;
+      }
+      const optimisticPost = {
+        ...lobbyChatToDiscussionPost({
+          id: `optimistic-${Date.now()}`,
+          author_id: null,
+          text: text.trim(),
+          media_url: null,
+          parent_id: null,
+          is_hidden: false,
+          created_at: new Date().toISOString(),
+        }),
+        author: isGuest ? '訪客' : userName,
+      };
+      setAppData((prev) => {
+        const next = cloneAppData(prev);
+        next.discussions[dbKey] = [...(next.discussions[dbKey] || []), optimisticPost];
+        return next;
+      });
+      showToast('已送出聊天訊息。');
+      return;
     }
 
     let newPost: DiscussionPost;

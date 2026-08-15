@@ -7,6 +7,8 @@ export type ForumItem = DiscussionPost & {
   nodeLabel: string;
   nodeColor: string;
   authorId?: string;
+  topicId?: string | null;
+  status?: string;
 };
 
 export type ForumComment = {
@@ -14,6 +16,7 @@ export type ForumComment = {
   body_text: string;
   created_at: string;
   author_id: string;
+  status?: string;
 };
 
 type LiveForumPost = {
@@ -23,6 +26,7 @@ type LiveForumPost = {
   created_at: string;
   author_id: string;
   topic_id?: string | null;
+  status?: string;
   forum_topics?: { topic_node_links?: { node_id: string }[] }[];
   forum_post_media?: { media_assets?: { storage_path: string; media_type: string }[] }[];
 };
@@ -30,6 +34,19 @@ type LiveForumPost = {
 function storageUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   return supabase.storage.from('quiz-images').getPublicUrl(path).data.publicUrl;
+}
+
+function errorMessage(error: { message?: string } | null, fallback: string): string {
+  if (!error) return fallback;
+  const message = error.message || '';
+  if (/permission|row-level security|not authenticated|JWT/i.test(message)) return '目前帳號沒有這項操作權限。';
+  if (/duplicate|unique/i.test(message)) return '這筆資料已經存在，請重新整理後再試。';
+  return fallback;
+}
+
+async function currentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getUser();
+  return data.user?.id || null;
 }
 
 export function formatForumDate(value: unknown): string {
@@ -58,8 +75,8 @@ export function toLegacyForumItems(nodesData: GraphNode[], discussions: Record<s
 export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<ForumItem[]> {
   const { data, error } = await supabase
     .from('forum_posts')
-    .select('id,title,body_text,created_at,author_id,topic_id,forum_topics(topic_node_links(node_id)),forum_post_media(media_assets(storage_path,media_type))')
-    .eq('status', 'published')
+    .select('id,title,body_text,created_at,author_id,topic_id,status,forum_topics(topic_node_links(node_id)),forum_post_media(media_assets(storage_path,media_type))')
+    .in('status', ['published', 'locked'])
     .order('created_at', { ascending: false })
     .limit(100);
   if (error || !data?.length) return [];
@@ -83,6 +100,8 @@ export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<
       media,
       author: '會員',
       authorId: post.author_id,
+      topicId: post.topic_id,
+      status: post.status,
       timestamp: post.created_at,
       upvotes: 0,
       replies: [],
@@ -94,7 +113,7 @@ export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<
 export async function fetchForumComments(postId: string): Promise<ForumComment[]> {
   const { data } = await supabase
     .from('forum_comments')
-    .select('id,body_text,created_at,author_id')
+    .select('id,body_text,created_at,author_id,status')
     .eq('post_id', postId)
     .eq('status', 'published')
     .order('created_at', { ascending: true })
@@ -102,18 +121,83 @@ export async function fetchForumComments(postId: string): Promise<ForumComment[]
   return (data || []) as ForumComment[];
 }
 
-export async function createForumPost(title: string, body: string): Promise<{ ok: boolean; message?: string }> {
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) return { ok: false, message: '請先登入會員。' };
-  const { error } = await supabase.from('forum_posts').insert({ author_id: userData.user.id, title, body_text: body, status: 'published' });
-  if (error) return { ok: false, message: error.message.includes('permission') ? '目前帳號沒有發文權限。' : '發文失敗，請稍後再試。' };
+export async function createForumPost(title: string, body: string, nodeIds: string[] = []): Promise<{ ok: boolean; message?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員。' };
+  const safeTitle = title.trim();
+  const safeBody = body.trim();
+  if (!safeTitle || safeTitle.length > 180) return { ok: false, message: '標題必須為 1 至 180 字。' };
+  if (!safeBody || safeBody.length > 10000) return { ok: false, message: '文章內容必須為 1 至 10,000 字。' };
+  const safeNodeIds = [...new Set(nodeIds.filter(Boolean))].slice(0, 3);
+  let topicId: string | undefined;
+
+  if (safeNodeIds.length) {
+    const topicResult = await supabase.from('forum_topics').insert({ author_id: userId, title: safeTitle, excerpt: safeBody.slice(0, 240), status: 'published' }).select('id').single();
+    if (topicResult.error || !topicResult.data?.id) return { ok: false, message: errorMessage(topicResult.error, '建立討論主題失敗，請稍後再試。') };
+    topicId = topicResult.data.id;
+    const linksResult = await supabase.from('topic_node_links').insert(safeNodeIds.map((nodeId) => ({ topic_id: topicId, node_id: nodeId, relation_type: 'related' })));
+    if (linksResult.error) {
+      await supabase.from('forum_topics').delete().eq('id', topicId);
+      return { ok: false, message: errorMessage(linksResult.error, '建立主題 Tag 失敗，請稍後再試。') };
+    }
+  }
+
+  const { error } = await supabase.from('forum_posts').insert({ author_id: userId, topic_id: topicId || null, title: safeTitle, body_text: safeBody, status: 'published' });
+  if (error) {
+    if (topicId) await supabase.from('forum_topics').delete().eq('id', topicId);
+    return { ok: false, message: errorMessage(error, '發文失敗，請稍後再試。') };
+  }
   return { ok: true };
 }
 
+export async function updateForumPost(postId: string, title: string, body: string): Promise<{ ok: boolean; message?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員。' };
+  const safeTitle = title.trim();
+  const safeBody = body.trim();
+  if (!safeTitle || safeTitle.length > 180) return { ok: false, message: '標題必須為 1 至 180 字。' };
+  if (!safeBody || safeBody.length > 10000) return { ok: false, message: '文章內容必須為 1 至 10,000 字。' };
+  const { error } = await supabase.from('forum_posts').update({ title: safeTitle, body_text: safeBody, updated_at: new Date().toISOString() }).eq('id', postId).eq('author_id', userId);
+  return error ? { ok: false, message: errorMessage(error, '編輯文章失敗，請稍後再試。') } : { ok: true };
+}
+
+export async function deleteForumPost(postId: string): Promise<{ ok: boolean; message?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員。' };
+  const { error } = await supabase.from('forum_posts').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', postId).eq('author_id', userId);
+  return error ? { ok: false, message: errorMessage(error, '刪除文章失敗，請稍後再試。') } : { ok: true };
+}
+
 export async function createForumComment(postId: string, body: string): Promise<{ ok: boolean; message?: string }> {
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) return { ok: false, message: '請先登入會員。' };
-  const { error } = await supabase.from('forum_comments').insert({ post_id: postId, author_id: userData.user.id, body_text: body, status: 'published' });
-  if (error) return { ok: false, message: error.message.includes('permission') ? '目前帳號沒有留言權限。' : '留言失敗，請稍後再試。' };
-  return { ok: true };
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員。' };
+  const safeBody = body.trim();
+  if (!safeBody || safeBody.length > 2000) return { ok: false, message: '留言必須為 1 至 2,000 字。' };
+  const { error } = await supabase.from('forum_comments').insert({ post_id: postId, author_id: userId, body_text: safeBody, status: 'published' });
+  return error ? { ok: false, message: errorMessage(error, '留言失敗，請稍後再試。') } : { ok: true };
+}
+
+export async function updateForumComment(commentId: string, body: string): Promise<{ ok: boolean; message?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員。' };
+  const safeBody = body.trim();
+  if (!safeBody || safeBody.length > 2000) return { ok: false, message: '留言必須為 1 至 2,000 字。' };
+  const { error } = await supabase.from('forum_comments').update({ body_text: safeBody, updated_at: new Date().toISOString() }).eq('id', commentId).eq('author_id', userId);
+  return error ? { ok: false, message: errorMessage(error, '編輯留言失敗，請稍後再試。') } : { ok: true };
+}
+
+export async function deleteForumComment(commentId: string): Promise<{ ok: boolean; message?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員。' };
+  const { error } = await supabase.from('forum_comments').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', commentId).eq('author_id', userId);
+  return error ? { ok: false, message: errorMessage(error, '刪除留言失敗，請稍後再試。') } : { ok: true };
+}
+
+export async function reportForumContent(targetType: 'forum_post' | 'forum_comment', targetId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: '請先登入會員才能檢舉。' };
+  const safeReason = reason.trim();
+  if (!safeReason || safeReason.length > 500) return { ok: false, message: '檢舉原因必須為 1 至 500 字。' };
+  const { error } = await supabase.from('reports').insert({ reporter_id: userId, target_type: targetType, target_id: targetId, reason: safeReason, status: 'open' });
+  return error ? { ok: false, message: errorMessage(error, '檢舉送出失敗，請稍後再試。') } : { ok: true };
 }

@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase';
 export type AdminNodeImages = Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string }>;
 export type AdminLogEntry = { id: string; created_at: string; action_type: string; details: Record<string, unknown>; device_id?: string | null };
 export type AdminUser = { user_id: string; role_level: number; granted_by?: string | null; created_at: string };
+export type AuthorApplication = { user_id: string; status: 'pending' | 'approved' | 'rejected' | string; application_text: string; reviewed_by?: string | null; reviewed_at?: string | null; review_note?: string | null; created_at: string; updated_at: string };
+export type AdminReport = { id: string; reporter_id?: string | null; guest_key?: string | null; target_type: string; target_id: string; reason: string; status: string; reviewed_by?: string | null; reviewed_at?: string | null; created_at: string };
 
 export type AdminCmsData = {
   mindmapJson: string;
@@ -87,6 +89,33 @@ export async function fetchAdminLogs(limit = 1000): Promise<AdminLogEntry[]> {
 export async function fetchAdminUsers(): Promise<AdminUser[]> {
   const { data } = await supabase.from('admin_roles').select('user_id,role_level,granted_by,created_at').order('role_level', { ascending: true }).limit(100);
   return (data || []) as AdminUser[];
+}
+
+export async function fetchAuthorApplications(): Promise<AuthorApplication[]> {
+  const { data, error } = await supabase.from('author_verifications').select('user_id,status,application_text,reviewed_by,reviewed_at,review_note,created_at,updated_at').order('created_at', { ascending: false }).limit(200);
+  if (error) throw error;
+  return (data || []) as AuthorApplication[];
+}
+
+export async function fetchAdminReports(): Promise<AdminReport[]> {
+  const { data, error } = await supabase.from('reports').select('id,reporter_id,guest_key,target_type,target_id,reason,status,reviewed_by,reviewed_at,created_at').order('created_at', { ascending: false }).limit(200);
+  if (error) throw error;
+  return (data || []) as AdminReport[];
+}
+
+export async function resolveAdminReport(reportId: string, status: 'resolved' | 'dismissed'): Promise<{ ok: boolean; message?: string }> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const reviewerId = sessionData.session?.user.id;
+  if (!reviewerId) return { ok: false, message: '管理員登入狀態已失效，請重新登入。' };
+  const { error } = await supabase.from('reports').update({ status, reviewed_by: reviewerId, reviewed_at: new Date().toISOString() }).eq('id', reportId);
+  return error ? { ok: false, message: '檢舉處理失敗，請確認管理員權限。' } : { ok: true };
+}
+
+export async function reviewAuthorApplication(userId: string, status: 'approved' | 'rejected', reviewNote: string): Promise<{ ok: boolean; message?: string }> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session?.user.id) return { ok: false, message: '管理員登入狀態已失效，請重新登入。' };
+  const { error } = await supabase.from('author_verifications').update({ status, reviewed_by: sessionData.session.user.id, reviewed_at: new Date().toISOString(), review_note: reviewNote.trim().slice(0, 1000), updated_at: new Date().toISOString() }).eq('user_id', userId);
+  return error ? { ok: false, message: '審核寫入失敗，請確認管理員權限與資料庫政策。' } : { ok: true };
 }
 
 export async function upsertAdminRole(userId: string, roleLevel: number): Promise<{ ok: boolean; message?: string }> {
