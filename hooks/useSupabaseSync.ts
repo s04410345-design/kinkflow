@@ -1,21 +1,58 @@
 import { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import type { GraphNode, GraphLink, AppData, DiscussionPost, VoteStats } from '@/lib/types';
-import { extractDiscussionContent, parseDiscussionDate } from '@/lib/contentModel';
+import type { GraphNode, GraphLink, AppData, VoteStats } from '@/lib/types';
+import { parseDiscussionDate, VOTE_TYPES, type VoteType } from '@/lib/contentModel';
+import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 
 const INITIALIZATION_FALLBACK_MS = 8_000;
 
-type QueryResult = {
-  data: any;
-  error: any;
+type QueryResult<T> = {
+  data: T | null;
+  error: unknown;
 };
 
-async function runQuery(label: string, request: PromiseLike<QueryResult>): Promise<QueryResult> {
+type ContentRow = {
+  content?: unknown;
+};
+
+type VoteRow = {
+  node_id?: unknown;
+  vote_type?: unknown;
+};
+
+type VoteLogRow = {
+  metadata_json?: unknown;
+};
+
+type LegacyVoteRecord = {
+  node_id: string;
+  vote_type: VoteType;
+  userName: string;
+};
+
+function getErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' ? message : null;
+}
+
+function isVoteType(value: unknown): value is VoteType {
+  return typeof value === 'string' && VOTE_TYPES.includes(value as VoteType);
+}
+
+function parseLegacyVoteRecord(value: unknown): LegacyVoteRecord | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.node_id !== 'string' || typeof record.userName !== 'string' || !isVoteType(record.vote_type)) return null;
+  return { node_id: record.node_id, vote_type: record.vote_type, userName: record.userName };
+}
+
+async function runQuery<T>(label: string, request: PromiseLike<QueryResult<T>>): Promise<QueryResult<T>> {
   try {
     const result = await request;
     if (result.error) {
-      console.warn(`[Supabase] ${label} failed:`, result.error.message || result.error);
+      console.warn(`[Supabase] ${label} failed:`, getErrorMessage(result.error) || result.error);
     }
     return result;
   } catch (error) {
@@ -56,13 +93,13 @@ export function useSupabaseSync() {
         // These reads are independent. Running them together prevents one slow table
         // from serially delaying every other part of the first paint.
         const [sheetConfigResult, mindmapResult, nodeImagesResult, layoutResult, discussionsResult, nodeVotesResult] = await Promise.all([
-          runQuery('google_sheets_config', supabase.from('quiz_content').select('content').eq('key_name', 'google_sheets_config')),
-          runQuery('mindmap_data', supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data')),
-          runQuery('node_images', supabase.from('quiz_content').select('content').eq('key_name', 'node_images')),
-          runQuery('profile_layout', supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout')),
-          runQuery('discussions', supabase.from('discussions').select('*').limit(500)),
+          runQuery<ContentRow[]>('google_sheets_config', supabase.from('quiz_content').select('content').eq('key_name', 'google_sheets_config')),
+          runQuery<ContentRow[]>('mindmap_data', supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data')),
+          runQuery<ContentRow[]>('node_images', supabase.from('quiz_content').select('content').eq('key_name', 'node_images')),
+          runQuery<ContentRow[]>('profile_layout', supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout')),
+          runQuery<DiscussionRow[]>('discussions', supabase.from('discussions').select('*').limit(500)),
           // Only fetch fields needed for public aggregation. Do not expose user_id to the client.
-          runQuery('node_votes', supabase.from('node_votes').select('node_id, vote_type').limit(5000)),
+          runQuery<VoteRow[]>('node_votes', supabase.from('node_votes').select('node_id, vote_type').limit(5000)),
         ]);
 
         if (cancelled) return;
@@ -106,28 +143,17 @@ export function useSupabaseSync() {
           nodeImages: { ...imgMap, ...(prev.nodeImages || {}) },
         }));
 
-        const defaultTheme = layoutResult.data?.[0]?.content?.theme || 'morandi';
+        const layoutContent = layoutResult.data?.[0]?.content;
+        const defaultTheme = layoutContent && typeof layoutContent === 'object' && typeof (layoutContent as { theme?: unknown }).theme === 'string'
+          ? (layoutContent as { theme: string }).theme
+          : 'morandi';
         if (typeof document !== 'undefined') {
           document.documentElement.setAttribute('data-theme', defaultTheme);
         }
 
         const dbDiscussions = discussionsResult.data;
         if (Array.isArray(dbDiscussions)) {
-          const grouped: Record<string, DiscussionPost[]> = {};
-          dbDiscussions.forEach(row => {
-            if (!row.node_id) return;
-            if (!grouped[row.node_id]) grouped[row.node_id] = [];
-            grouped[row.node_id].push({
-              id: row.id,
-              author: row.author || '匿名會員',
-              text: row.text || row.body || '',
-              ...extractDiscussionContent(row.text || row.body || '', row.title, row.body, row.media),
-              upvotes: Number(row.upvotes || 0),
-              timestamp: row.timestamp || row.created_at,
-              replies: row.replies || [],
-              emojis: row.emojis || [],
-            });
-          });
+          const grouped = groupDiscussionRows(dbDiscussions);
           Object.values(grouped).forEach(posts => {
             posts.sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
           });
@@ -138,37 +164,35 @@ export function useSupabaseSync() {
         if (Array.isArray(nodeVotes) && !nodeVotesResult.error) {
           const globalStats: Record<string, VoteStats> = {};
           nodeVotes.forEach(vote => {
-            if (!vote.node_id || !vote.vote_type) return;
-            if (!globalStats[vote.node_id]) {
-              globalStats[vote.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
+            const nodeId = typeof vote.node_id === 'string' ? vote.node_id : null;
+            const voteType = isVoteType(vote.vote_type) ? vote.vote_type : null;
+            if (!nodeId || !voteType) return;
+            if (!globalStats[nodeId]) {
+              globalStats[nodeId] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
             }
-            if (vote.vote_type in globalStats[vote.node_id]) {
-              globalStats[vote.node_id][vote.vote_type as keyof VoteStats] += 1;
-            }
+            globalStats[nodeId][voteType] += 1;
           });
           setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...globalStats } }));
         } else {
           // Compatibility fallback for installations before node_votes was deployed.
-          const voteLogsResult = await runQuery(
+          const voteLogsResult = await runQuery<VoteLogRow[]>(
             'legacy_node_vote_logs',
             supabase.from('visitor_logs').select('metadata_json').eq('action_type', 'node_vote').limit(5000),
           );
           if (!cancelled && Array.isArray(voteLogsResult.data)) {
-            const globalStats: Record<string, Record<string, number>> = {};
-            const latestVotes = new Map<string, Record<string, string>>();
+            const globalStats: Record<string, VoteStats> = {};
+            const latestVotes = new Map<string, LegacyVoteRecord>();
             voteLogsResult.data.forEach(log => {
-              const data = log.metadata_json as Record<string, any> | null;
-              if (data?.node_id && data.vote_type && data.userName) {
+              const data = parseLegacyVoteRecord(log.metadata_json);
+              if (data) {
                 latestVotes.set(`${data.userName}_${data.node_id}`, data);
               }
             });
             latestVotes.forEach(data => {
               if (!globalStats[data.node_id]) globalStats[data.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
-              if (data.vote_type in globalStats[data.node_id]) {
-                globalStats[data.node_id][data.vote_type] = (globalStats[data.node_id][data.vote_type] || 0) + 1;
-              }
+              globalStats[data.node_id][data.vote_type] += 1;
             });
-            setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...(globalStats as unknown as Record<string, VoteStats>) } }));
+            setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...globalStats } }));
           }
         }
       } catch (error) {

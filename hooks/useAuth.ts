@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { SafeStorage } from '@/lib/constants';
+import { formatMemberName, getStoredGuestName } from '@/lib/auth/identity';
 
 export function useAuth() {
   const [userName, setUserName] = useState<string | null>(null);
@@ -11,7 +12,7 @@ export function useAuth() {
 
   useEffect(() => {
     // 輔助函式：優先從 profiles 表讀取最新名稱，fallback 到 user_metadata
-    const resolveNameFromSession = async (session: any) => {
+    const resolveNameFromSession = async (session: Session | null) => {
       const user = session?.user;
       if (!user) return null;
 
@@ -23,15 +24,13 @@ export function useAuth() {
       const profileRow = profileRows?.[0];
 
       if (profileRow?.username) {
-        const cleanName = profileRow.username.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-        return cleanName + ' ☑️';
+        return formatMemberName(profileRow.username);
       }
 
       // fallback: 從 user_metadata 讀取
       const meta = user.user_metadata || {};
       const baseName = meta.display_name || meta.full_name || meta.name || meta.preferred_username || user.email?.split('@')[0] || 'User';
-      const cleanName = baseName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-      return cleanName + ' ☑️';
+      return formatMemberName(baseName);
     };
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -41,10 +40,9 @@ export function useAuth() {
         setUserId(session.user.id);
         setIsGuest(false);
       } else {
-        const localUser = SafeStorage.get('kinkflow_user') as string | null;
+        const localUser = getStoredGuestName();
         if (localUser) {
-          const cleanName = localUser.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-          setUserName(cleanName + ' 👻');
+          setUserName(localUser);
           setIsGuest(true);
         }
       }
@@ -76,10 +74,9 @@ export function useAuth() {
         setIsGuest(false);
         redirectAfterAuth();
       } else {
-        const localUser = SafeStorage.get('kinkflow_user') as string | null;
+        const localUser = getStoredGuestName();
         if (localUser) {
-          const cleanName = localUser.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-          setUserName(cleanName + ' 👻');
+          setUserName(localUser);
           setIsGuest(true);
         } else {
           setUserName(null);
