@@ -57,6 +57,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const [showStyleConfigModal, setShowStyleConfigModal] = useState(false);
   const [showPwaModal, setShowPwaModal] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [openLobbyChat, setOpenLobbyChat] = useState(false);
 
   useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
@@ -112,8 +113,17 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   }, []);
 
   const closeDrawer = useCallback(() => {
+    setOpenLobbyChat(false);
     handleNodeClick(null);
   }, [handleNodeClick]);
+
+  const openLobbyChatDrawer = useCallback(() => {
+    const lobbyNode = nodesData.find((node) => node.id === 'bdsm') || defaultGraphNodes.find((node) => node.id === 'bdsm');
+    if (!lobbyNode) return;
+    setActiveTab('graph');
+    setOpenLobbyChat(true);
+    handleNodeClick(lobbyNode);
+  }, [handleNodeClick, nodesData]);
 
   // 處理手機實體返回鍵 (History API)
   useEffect(() => {
@@ -547,6 +557,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
               linksData={linksData}
               goBack={goBackNode}
               canGoBack={nodeHistory.length > 0}
+              initialLobbyTab={openLobbyChat ? 'chat' : undefined}
             />
           </ErrorBoundary>
         )}
@@ -665,6 +676,16 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           </div>
         </div>
       )}
+
+      {/* 穩定的大廳聊天固定入口：不依賴 SVG 節點座標或動畫元素 */}
+      <button
+        type="button"
+        onClick={openLobbyChatDrawer}
+        className="fixed bottom-4 right-4 z-40 rounded-full border-2 border-white bg-[#172033] px-4 py-3 text-sm font-black text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-[#334155] active:scale-95"
+        aria-label="開啟大廳即時聊天"
+      >
+        💬 大廳聊天
+      </button>
 
       {/* 小精靈懸浮按鈕 + 聊天面板 */}
       {userName && (

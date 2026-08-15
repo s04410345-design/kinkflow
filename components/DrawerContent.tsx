@@ -19,7 +19,7 @@ import AiChatbot from '@/components/AiChatbot';
 import { useQuizConfig } from '@/components/QuizContext';
 
 // ================= 資訊抽屜 =================
-export default function DrawerContent({ node, closeDrawer, userName, isGuest, appData, setAppData, onJump, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, goBack, canGoBack }: {
+export default function DrawerContent({ node, closeDrawer, userName, isGuest, appData, setAppData, onJump, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, goBack, canGoBack, initialLobbyTab }: {
   node: GraphNode;
   closeDrawer: () => void;
   userName: string;
@@ -34,6 +34,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   nodesData: GraphNode[];
   goBack?: () => void;
   canGoBack?: boolean;
+  initialLobbyTab?: 'info' | 'chat' | 'hot' | 'stats' | 'board';
 }) {
   const { globalAssets } = useQuizConfig();
   const nodeDictImage = appData?.nodeImages?.[node.id]?.realistic || appData?.nodeImages?.[node.id]?.image;
@@ -41,7 +42,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   const nodeImageToShow = (node.image && typeof node.image === 'string' && node.image.trim()) 
     ? node.image 
     : (nodeDictImage || staticFallback);
-  const [lobbyTab, setLobbyTab] = useState<'info' | 'chat' | 'hot' | 'stats' | 'board'>('info');
+  const [lobbyTab, setLobbyTab] = useState<'info' | 'chat' | 'hot' | 'stats' | 'board'>(initialLobbyTab || 'info');
   const [nodeTab, setNodeTab] = useState<'info' | 'hot' | 'stats' | 'chat'>('info');
   const [isImgShrunk, setIsImgShrunk] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -51,6 +52,10 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   useEffect(() => {
     setImgLoaded(false);
   }, [node.image]);
+
+  useEffect(() => {
+    if (node.level === 0 && initialLobbyTab) setLobbyTab(initialLobbyTab);
+  }, [initialLobbyTab, node.level]);
   
   const dbKey = node.level === 0 ? (lobbyTab === 'chat' ? 'lobby_chat' : 'lobby_board') : node.id;
   const rawPosts = (appData && appData.discussions && appData.discussions[dbKey]) || [];
