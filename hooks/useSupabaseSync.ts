@@ -1,9 +1,28 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import Papa from 'papaparse';
+import { useEffect, useState } from 'react';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { GraphNode, GraphLink, AppData, DiscussionPost, VoteStats } from '@/lib/types';
 import { extractDiscussionContent, parseDiscussionDate } from '@/lib/contentModel';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
+
+const INITIALIZATION_FALLBACK_MS = 8_000;
+
+type QueryResult = {
+  data: any;
+  error: any;
+};
+
+async function runQuery(label: string, request: PromiseLike<QueryResult>): Promise<QueryResult> {
+  try {
+    const result = await request;
+    if (result.error) {
+      console.warn(`[Supabase] ${label} failed:`, result.error.message || result.error);
+    }
+    return result;
+  } catch (error) {
+    console.warn(`[Supabase] ${label} request failed:`, error);
+    return { data: null, error };
+  }
+}
 
 export function useSupabaseSync() {
   const [appData, setAppData] = useState<AppData>(initialAppData);
@@ -12,84 +31,91 @@ export function useSupabaseSync() {
   const [dbLoaded, setDbLoaded] = useState(false);
 
   useEffect(() => {
-    async function fetchDb() {
+    let cancelled = false;
+    let fallbackTimer: number | undefined;
+
+    const finishInitialization = () => {
+      if (!cancelled) setDbLoaded(true);
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+    };
+
+    const applyDefaultMindmap = () => {
+      if (cancelled) return;
+      setNodesData(defaultGraphNodes);
+      setLinksData(defaultGraphLinks);
+    };
+
+    const fetchDb = async () => {
+      if (!isSupabaseConfigured) {
+        console.warn('[Supabase] Missing public environment variables; using local fallback data.');
+        finishInitialization();
+        return;
+      }
+
       try {
-        const { data: sheetConfigArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'google_sheets_config');
-        const sheetConfigObj = sheetConfigArr?.[0];
-        const sheetConfig = sheetConfigObj?.content || {};
+        // These reads are independent. Running them together prevents one slow table
+        // from serially delaying every other part of the first paint.
+        const [sheetConfigResult, mindmapResult, nodeImagesResult, layoutResult, discussionsResult, nodeVotesResult] = await Promise.all([
+          runQuery('google_sheets_config', supabase.from('quiz_content').select('content').eq('key_name', 'google_sheets_config')),
+          runQuery('mindmap_data', supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data')),
+          runQuery('node_images', supabase.from('quiz_content').select('content').eq('key_name', 'node_images')),
+          runQuery('profile_layout', supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout')),
+          runQuery('discussions', supabase.from('discussions').select('*').limit(500)),
+          // Only fetch fields needed for public aggregation. Do not expose user_id to the client.
+          runQuery('node_votes', supabase.from('node_votes').select('node_id, vote_type').limit(5000)),
+        ]);
 
-        let loadedMindmap = false;
-        try {
-          const { data: mindmapArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data');
-          const mindmap = mindmapArr?.[0];
-          if (mindmap?.content && Array.isArray(mindmap.content) && mindmap.content.length > 0) {
-            const parsedNodes = mindmap.content as GraphNode[];
-            setNodesData(parsedNodes);
-            const parsedLinks: GraphLink[] = [];
-            parsedNodes.filter(n => n.parent).forEach(n => parsedLinks.push({ source: n.parent as string, target: n.id }));
-            setLinksData(parsedLinks);
-            loadedMindmap = true;
-          }
-        } catch (err) {
-          console.warn("No valid mindmap_data found in Supabase.", err);
+        if (cancelled) return;
+
+        // Keep this read for compatibility with older configuration records.
+        void sheetConfigResult;
+
+        const mindmap = mindmapResult.data?.[0];
+        if (Array.isArray(mindmap?.content) && mindmap.content.length > 0) {
+          const parsedNodes = mindmap.content as GraphNode[];
+          setNodesData(parsedNodes);
+          setLinksData(parsedNodes.filter(node => node.parent).map(node => ({
+            source: node.parent as string,
+            target: node.id,
+          })));
+        } else {
+          applyDefaultMindmap();
         }
 
-        if (!loadedMindmap) {
-          setNodesData(defaultGraphNodes);
-          const parsedLinks: GraphLink[] = [];
-          defaultGraphNodes.filter(n => n.parent).forEach(n => parsedLinks.push({ source: n.parent as string, target: n.id }));
-          setLinksData(parsedLinks);
-        }
-
-        const { data: nodeImagesArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'node_images');
-        const nodeImagesObj = nodeImagesArr?.[0];
-        const imgMap = (nodeImagesObj?.content || {}) as Record<string, { icon?: string, image?: string, kamon?: string, realistic?: string }>;
-        
+        const imgMap = (nodeImagesResult.data?.[0]?.content || {}) as Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string }>;
         const convertGoogleDriveUrl = (url?: string): string | undefined => {
           if (!url) return url;
           const match = url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/) || url.match(/id=([a-zA-Z0-9-_]+)/);
-          if (match && match[1]) {
-            return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-          }
-          return url;
+          return match?.[1] ? `https://drive.google.com/uc?export=view&id=${match[1]}` : url;
         };
 
-        setNodesData(prev => prev.map(n => {
-          const entry = imgMap[n.id] || {};
+        setNodesData(prev => prev.map(node => {
+          const entry = imgMap[node.id] || {};
           const overrideKamon = convertGoogleDriveUrl(entry.kamon || entry.icon);
           const overrideRealistic = convertGoogleDriveUrl(entry.realistic || entry.image);
-          
-          // 預設靜態庫備份
-          const staticKamon = `/images/nodes/kamon_${n.id}.png`;
-          const staticRealistic = `/images/nodes/realistic_${n.id}.png`;
-
           return {
-            ...n,
-            kamonIcon: overrideKamon || staticKamon || n.kamonIcon,
-            image: overrideRealistic || staticRealistic || n.image,
-            icon: overrideKamon || n.icon
+            ...node,
+            kamonIcon: overrideKamon || `/images/nodes/kamon_${node.id}.png` || node.kamonIcon,
+            image: overrideRealistic || `/images/nodes/realistic_${node.id}.png` || node.image,
+            icon: overrideKamon || node.icon,
           };
         }));
 
         setAppData(prev => ({
           ...prev,
-          nodeImages: {
-            ...imgMap,
-            ...(prev.nodeImages || {})
-          }
+          nodeImages: { ...imgMap, ...(prev.nodeImages || {}) },
         }));
 
-        // 讀取後台設定的全站預設風格並套用至 DOM
-        const { data: layoutDataArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout');
-        const defaultTheme = layoutDataArr?.[0]?.content?.theme || 'morandi';
+        const defaultTheme = layoutResult.data?.[0]?.content?.theme || 'morandi';
         if (typeof document !== 'undefined') {
           document.documentElement.setAttribute('data-theme', defaultTheme);
         }
 
-        const { data: dbDiscs } = await supabase.from('discussions').select('*');
-        if (dbDiscs) {
+        const dbDiscussions = discussionsResult.data;
+        if (Array.isArray(dbDiscussions)) {
           const grouped: Record<string, DiscussionPost[]> = {};
-          dbDiscs.forEach(row => {
+          dbDiscussions.forEach(row => {
+            if (!row.node_id) return;
             if (!grouped[row.node_id]) grouped[row.node_id] = [];
             grouped[row.node_id].push({
               id: row.id,
@@ -97,24 +123,21 @@ export function useSupabaseSync() {
               text: row.text || row.body || '',
               ...extractDiscussionContent(row.text || row.body || '', row.title, row.body, row.media),
               upvotes: Number(row.upvotes || 0),
-              timestamp: row.timestamp,
+              timestamp: row.timestamp || row.created_at,
               replies: row.replies || [],
-              emojis: row.emojis || []
+              emojis: row.emojis || [],
             });
           });
-          for (const key in grouped) {
-            grouped[key].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
-          }
+          Object.values(grouped).forEach(posts => {
+            posts.sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
+          });
           setAppData(prev => ({ ...prev, discussions: grouped }));
         }
 
-        // 新模型優先：每個 user + node 只有一筆，統計不依賴前端或舊 log 推算。
-        const { data: nodeVotes, error: nodeVotesError } = await supabase
-          .from('node_votes')
-          .select('node_id, vote_type, user_id');
-        if (!nodeVotesError && nodeVotes) {
+        const nodeVotes = nodeVotesResult.data;
+        if (Array.isArray(nodeVotes) && !nodeVotesResult.error) {
           const globalStats: Record<string, VoteStats> = {};
-          nodeVotes.forEach((vote) => {
+          nodeVotes.forEach(vote => {
             if (!vote.node_id || !vote.vote_type) return;
             if (!globalStats[vote.node_id]) {
               globalStats[vote.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
@@ -125,35 +148,49 @@ export function useSupabaseSync() {
           });
           setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...globalStats } }));
         } else {
-          // 相容舊站：只有新表不存在或尚未部署時，才使用舊 visitor_logs。
-          const { data: voteLogs } = await supabase
-            .from('visitor_logs')
-            .select('metadata_json')
-            .eq('action_type', 'node_vote');
-          if (voteLogs) {
+          // Compatibility fallback for installations before node_votes was deployed.
+          const voteLogsResult = await runQuery(
+            'legacy_node_vote_logs',
+            supabase.from('visitor_logs').select('metadata_json').eq('action_type', 'node_vote').limit(5000),
+          );
+          if (!cancelled && Array.isArray(voteLogsResult.data)) {
             const globalStats: Record<string, Record<string, number>> = {};
             const latestVotes = new Map<string, Record<string, string>>();
-            voteLogs.forEach(log => {
-              const d = log.metadata_json as Record<string, any> | null;
-              if (d && d.node_id && d.vote_type && d.userName) {
-                latestVotes.set(`${d.userName}_${d.node_id}`, d);
+            voteLogsResult.data.forEach(log => {
+              const data = log.metadata_json as Record<string, any> | null;
+              if (data?.node_id && data.vote_type && data.userName) {
+                latestVotes.set(`${data.userName}_${data.node_id}`, data);
               }
             });
-            latestVotes.forEach(d => {
-              if (!globalStats[d.node_id]) globalStats[d.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
-              if (d.vote_type in globalStats[d.node_id]) {
-                globalStats[d.node_id][d.vote_type] = (globalStats[d.node_id][d.vote_type] || 0) + 1;
+            latestVotes.forEach(data => {
+              if (!globalStats[data.node_id]) globalStats[data.node_id] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
+              if (data.vote_type in globalStats[data.node_id]) {
+                globalStats[data.node_id][data.vote_type] = (globalStats[data.node_id][data.vote_type] || 0) + 1;
               }
             });
             setAppData(prev => ({ ...prev, stats: { ...prev.stats, ...(globalStats as unknown as Record<string, VoteStats>) } }));
           }
         }
-      } catch (e) {
-        console.error("資料庫載入錯誤:", e);
+      } catch (error) {
+        console.error('[Supabase] Initial data load failed; continuing with local fallback data.', error);
+      } finally {
+        finishInitialization();
       }
-      setDbLoaded(true);
-    }
-    fetchDb();
+    };
+
+    // Never leave the whole app behind a spinner because a remote request is slow.
+    fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        console.warn(`[Supabase] Initialization exceeded ${INITIALIZATION_FALLBACK_MS}ms; showing fallback UI.`);
+        setDbLoaded(true);
+      }
+    }, INITIALIZATION_FALLBACK_MS);
+
+    void fetchDb();
+    return () => {
+      cancelled = true;
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+    };
   }, []);
 
   return {
@@ -164,6 +201,6 @@ export function useSupabaseSync() {
     linksData,
     setLinksData,
     dbLoaded,
-    setDbLoaded
+    setDbLoaded,
   };
 }

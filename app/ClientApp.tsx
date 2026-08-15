@@ -185,10 +185,12 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       .subscribe((status) => { ... });
     */
 
-    // ===== 備用方案：如果 WebSocket 被阻擋，每 5 秒自動拉取一次最新資料 =====
+    // ===== 備用方案：如果 WebSocket 被阻擋，定期拉取最新資料 =====
+    // Use a slower, visibility-aware poll so a stalled tab cannot create request pressure.
     const fallbackInterval = setInterval(async () => {
+      if (document.visibilityState === 'hidden') return;
       try {
-        const { data: dbDiscussions } = await supabase.from('discussions').select('*');
+        const { data: dbDiscussions } = await supabase.from('discussions').select('*').limit(500);
         if (dbDiscussions) {
           setAppData(prev => {
             const next = { ...prev, discussions: { ...prev.discussions } };
@@ -228,7 +230,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       } catch (e) {
         console.error('Fallback polling error:', e);
       }
-    }, 5000);
+    }, 15000);
 
     return () => {
       // supabase.removeChannel(channel);
