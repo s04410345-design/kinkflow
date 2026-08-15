@@ -90,10 +90,17 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       setActiveTab('quiz');
       setShowProfileModal(false);
     };
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setPwaMessage('KinkFlow 已安裝到裝置。');
+      setShowPwaModal(true);
+    };
     window.addEventListener('open_quiz_modal', handleOpenQuiz);
+    window.addEventListener('appinstalled', handleAppInstalled);
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('open_quiz_modal', handleOpenQuiz);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -327,25 +334,30 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   };
 
   const handleInstallApp = () => {
-    if (!deferredPrompt) {
+    const promptEvent = deferredPrompt;
+    setShowPwaModal(true);
+
+    if (!promptEvent) {
       setPwaMessage('目前瀏覽器沒有提供一鍵安裝，請依下方的手機瀏覽器步驟操作。');
-      setShowPwaModal(true);
       return;
     }
 
-    void (async () => {
-      try {
-        await deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
-        setDeferredPrompt(null);
-        setPwaMessage(choice.outcome === 'accepted' ? '已啟動安裝，請依瀏覽器畫面完成確認。' : '你已取消安裝；仍可依下方步驟手動加入主畫面。');
-        setShowPwaModal(true);
-      } catch (error: unknown) {
-        console.warn('PWA 安裝提示啟動失敗', error);
-        setPwaMessage('目前無法啟動一鍵安裝，請依下方步驟手動加入主畫面。');
-        setShowPwaModal(true);
-      }
-    })();
+    // 先讓指引 Modal render，再呼叫可能會等待原生 UI 的 prompt()。
+    // 否則 userChoice 尚未回傳時，使用者會看不到任何點擊回饋。
+    setPwaMessage('正在開啟瀏覽器安裝提示；若沒有看到提示，請依下方步驟手動加入主畫面。');
+    setDeferredPrompt(null);
+    window.setTimeout(() => {
+      void (async () => {
+        try {
+          await promptEvent.prompt();
+          const choice = await promptEvent.userChoice;
+          setPwaMessage(choice.outcome === 'accepted' ? '已啟動安裝，請依瀏覽器畫面完成確認。' : '你已取消安裝；仍可依下方步驟手動加入主畫面。');
+        } catch (error: unknown) {
+          console.warn('PWA 安裝提示啟動失敗', error);
+          setPwaMessage('目前無法啟動一鍵安裝，請依下方步驟手動加入主畫面。');
+        }
+      })();
+    }, 0);
   };
 
   // ===== 載入畫面 =====
@@ -443,7 +455,9 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           </button>
           
           <button 
+            type="button"
             onClick={handleInstallApp}
+            aria-label="開啟 KinkFlow 安裝指引"
             className="text-xs px-3 py-1.5 rounded-full bg-[#C5D4B6]/40 hover:bg-[#C5D4B6]/80 text-[#1A1612] border border-[#C5D4B6]/60 font-bold transition-all flex items-center gap-1 shadow-xs shrink-0"
             title="點擊安裝至手機桌面 App"
           >
