@@ -17,7 +17,7 @@ import DrawerContent from '@/components/DrawerContent';
 import { useQuizConfig } from '@/components/QuizContext';
 
 // ================= 網絡圖視圖 =================
-export default function GraphView({ onNodeClick, selectedNode, closeDrawer, userName, isGuest, appData, setAppData, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, linksData, goBack, canGoBack, isEditMode, onNodeDragEnd }: {
+export default function GraphView({ onNodeClick, selectedNode, closeDrawer, userName, isGuest, appData, setAppData, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, linksData, goBack, canGoBack, isEditMode, onNodeDragEnd, initialLobbyTab }: {
   onNodeClick: (node: GraphNode, postId?: string) => void;
   selectedNode: GraphNode | null;
   closeDrawer: () => void;
@@ -35,6 +35,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
   canGoBack?: boolean;
   isEditMode?: boolean;
   onNodeDragEnd?: (id: string, fx: number, fy: number) => void;
+  initialLobbyTab?: 'info' | 'chat' | 'hot' | 'stats' | 'board';
 }) {
   const quizConfig = useQuizConfig();
   const nodeImages = appData?.nodeImages || (quizConfig as any)?.nodeImages || {};
@@ -741,6 +742,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
               nodesData={nodesData}
               goBack={goBack}
               canGoBack={canGoBack}
+              initialLobbyTab={initialLobbyTab}
             />
           </div>
         )}
