@@ -25,8 +25,10 @@ export default function DiscussionManagementPanel() {
       const result = await fetchAdminDiscussionItems();
       setNodeNames(result.nodeNames);
       setPosts(result.posts);
+      return result;
     } catch (err) {
       console.error('Failed to fetch discussions:', err);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -38,7 +40,12 @@ export default function DiscussionManagementPanel() {
     try {
       const result = await deleteAdminDiscussion(post);
       if (!result.ok) throw new Error(result.message || '刪除失敗');
-      setPosts(prev => prev.filter(p => String(p.id) !== String(post.id)));
+      const refreshed = await fetchDiscussions();
+      const stillExists = refreshed?.posts.some((item) => {
+        if (post.isReply) return String(item.id) === String(post.id);
+        return String(item.id) === String(post.id) || String(item.parentId) === String(post.id);
+      });
+      if (stillExists) throw new Error('刪除後資料仍存在，請重新整理後台或檢查資料庫權限。');
       alert('刪除成功！');
     } catch (err) {
       alert('刪除失敗: ' + (err instanceof Error ? err.message : '未知錯誤'));
