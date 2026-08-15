@@ -15,6 +15,7 @@ import {
   updateForumPost,
   type ForumComment,
   type ForumItem,
+  type ReportCategory,
 } from '@/lib/data/forum';
 
 type ForumFeatureProps = {
@@ -87,6 +88,9 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
   const [editingCommentBody, setEditingCommentBody] = useState('');
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ targetType: 'forum_post' | 'forum_comment'; targetId: string } | null>(null);
+  const [reportCategory, setReportCategory] = useState<ReportCategory>('other');
+  const [reportDetails, setReportDetails] = useState('');
 
   const loadPosts = async () => {
     setIsLoading(true);
@@ -147,12 +151,24 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
     setSaving(false);
   };
 
-  const reportContent = async (targetType: 'forum_post' | 'forum_comment', targetId: string) => {
-    const reason = window.prompt('請簡單說明檢舉原因（最多 500 字）：')?.trim();
-    if (!reason) return;
+  const openReportDialog = (targetType: 'forum_post' | 'forum_comment', targetId: string) => {
+    setReportTarget({ targetType, targetId });
+    setReportCategory('other');
+    setReportDetails('');
+    setNotice(null);
+  };
+
+  const reportContent = async () => {
+    if (!reportTarget || !reportDetails.trim()) { setNotice('請選擇檢舉分類並填寫補充說明。'); return; }
     setSaving(true); setNotice(null);
-    const result = await reportForumContent(targetType, targetId, reason);
-    setNotice(result.ok ? '檢舉已送出，管理員會進行查看。' : (result.message || '檢舉送出失敗。'));
+    const result = await reportForumContent(reportTarget.targetType, reportTarget.targetId, reportCategory, reportDetails);
+    if (result.ok) {
+      setReportTarget(null);
+      setReportDetails('');
+      setNotice('檢舉已送出，管理員會進行查看。');
+    } else {
+      setNotice(result.message || '檢舉送出失敗。');
+    }
     setSaving(false);
   };
 
@@ -178,6 +194,12 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
         <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-10">
           <button type="button" onClick={() => { setSelectedPostId(null); setPostFormOpen(false); setEditingPost(false); }} className="mb-6 rounded-full border border-[#CBD5E1] bg-white px-4 py-2 text-sm font-bold text-[#334155]">← 返回討論版</button>
           {notice && <div className="mb-4 rounded-xl border border-[#FCD34D] bg-[#FFFBEB] p-3 text-sm text-[#92400E]">{notice}</div>}
+          {reportTarget && <div role="dialog" aria-modal="true" aria-labelledby="report-dialog-title" className="mb-5 rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] p-4">
+            <div className="flex items-start justify-between gap-3"><div><h2 id="report-dialog-title" className="font-black text-[#172033]">檢舉內容</h2><p className="mt-1 text-xs text-[#92400E]">請選擇原因並提供具體說明，方便管理員處理。</p></div><button type="button" onClick={() => setReportTarget(null)} className="text-sm font-bold text-[#64748B]">關閉</button></div>
+            <select value={reportCategory} onChange={(event) => setReportCategory(event.target.value as ReportCategory)} className="mt-3 w-full rounded-xl border border-[#FCD34D] bg-white p-3 text-sm"><option value="spam">垃圾訊息或廣告</option><option value="harassment">騷擾或霸凌</option><option value="safety">安全風險或危險內容</option><option value="privacy">侵犯隱私</option><option value="illegal">違法內容</option><option value="hate">仇恨或歧視</option><option value="self_harm">自傷相關風險</option><option value="misinformation">明顯錯誤資訊</option><option value="other">其他</option></select>
+            <textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={2000} placeholder="補充說明（最多 2,000 字）" className="mt-3 min-h-24 w-full rounded-xl border border-[#FCD34D] bg-white p-3 text-sm" />
+            <div className="mt-3 flex gap-2"><button type="button" onClick={() => void reportContent()} disabled={saving || !reportDetails.trim()} className="rounded-xl bg-[#92400E] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '送出中…' : '送出檢舉'}</button><button type="button" onClick={() => setReportTarget(null)} disabled={saving} className="rounded-xl border border-[#FCD34D] px-4 py-2 text-sm font-bold text-[#92400E]">取消</button></div>
+          </div>}
           {isMember && postFormOpen && editingPost && <div className="mb-5"><PostEditor title={postTitle} body={postBody} setTitle={setPostTitle} setBody={setPostBody} onSave={submitPost} onCancel={() => { setPostFormOpen(false); setEditingPost(false); }} saving={saving} nodesData={nodesData} nodeIds={postNodeIds} setNodeIds={setPostNodeIds} editing /></div>}
           <article className="overflow-hidden rounded-3xl border border-[#CBD5E1] bg-white shadow-sm">
             <header className="border-b border-[#E2E8F0] px-5 py-7 md:px-10">
@@ -186,7 +208,7 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
               <p className="mt-3 text-sm text-[#64748B]">作者：{selectedPost.author || '匿名會員'}　·　{formatForumDate(selectedPost.timestamp)}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {selectedPostIsOwner && <><button type="button" onClick={openPostEditor} className="rounded-lg border border-[#CBD5E1] px-3 py-1.5 text-xs font-bold text-[#334155]">編輯文章</button><button type="button" onClick={removePost} disabled={saving} className="rounded-lg border border-[#FECACA] px-3 py-1.5 text-xs font-bold text-[#B91C1C] disabled:opacity-50">刪除文章</button></>}
-                {isMember && !selectedPostIsOwner && typeof selectedPost.id === 'string' && <button type="button" onClick={() => void reportContent('forum_post', String(selectedPost.id))} disabled={saving} className="rounded-lg border border-[#FCD34D] px-3 py-1.5 text-xs font-bold text-[#92400E] disabled:opacity-50">檢舉文章</button>}
+                {isMember && !selectedPostIsOwner && typeof selectedPost.id === 'string' && <button type="button" onClick={() => openReportDialog('forum_post', String(selectedPost.id))} disabled={saving} className="rounded-lg border border-[#FCD34D] px-3 py-1.5 text-xs font-bold text-[#92400E] disabled:opacity-50">檢舉文章</button>}
               </div>
             </header>
             <div className="px-5 py-7 text-base leading-8 text-[#263449] md:px-10 md:py-10"><p className="whitespace-pre-wrap">{content.body}</p><DiscussionMedia post={selectedPost} /></div>
@@ -195,7 +217,7 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
               <div className="mt-4 space-y-3">
                 {comments.map((comment) => {
                   const isCommentOwner = Boolean(currentUserId && comment.author_id === currentUserId);
-                  return <div key={comment.id} className="rounded-2xl bg-white p-4"><div className="flex items-start justify-between gap-3">{editingCommentId === comment.id ? <div className="flex-1"><textarea value={editingCommentBody} onChange={(e) => setEditingCommentBody(e.target.value)} maxLength={3000} className="min-h-20 w-full rounded-xl border border-[#CBD5E1] p-3 text-sm" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => void saveCommentEdit()} disabled={saving} className="rounded-lg bg-[#172033] px-3 py-1.5 text-xs font-bold text-white">儲存</button><button type="button" onClick={() => setEditingCommentId(null)} className="rounded-lg border border-[#CBD5E1] px-3 py-1.5 text-xs font-bold">取消</button></div></div> : <p className="flex-1 whitespace-pre-wrap text-sm leading-6 text-[#334155]">{comment.body_text}</p>}<div className="flex shrink-0 flex-wrap gap-1">{isCommentOwner && editingCommentId !== comment.id && <><button type="button" onClick={() => { setEditingCommentId(comment.id); setEditingCommentBody(comment.body_text); }} className="text-xs font-bold text-[#475569]">編輯</button><button type="button" onClick={() => void removeComment(comment.id)} disabled={saving} className="text-xs font-bold text-[#B91C1C]">刪除</button></>}{isMember && !isCommentOwner && <button type="button" onClick={() => void reportContent('forum_comment', comment.id)} disabled={saving} className="text-xs font-bold text-[#92400E]">檢舉</button>}</div></div><p className="mt-2 text-xs text-[#94A3B8]">{formatForumDate(comment.created_at)}</p></div>;
+                  return <div key={comment.id} className="rounded-2xl bg-white p-4"><div className="flex items-start justify-between gap-3">{editingCommentId === comment.id ? <div className="flex-1"><textarea value={editingCommentBody} onChange={(e) => setEditingCommentBody(e.target.value)} maxLength={3000} className="min-h-20 w-full rounded-xl border border-[#CBD5E1] p-3 text-sm" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => void saveCommentEdit()} disabled={saving} className="rounded-lg bg-[#172033] px-3 py-1.5 text-xs font-bold text-white">儲存</button><button type="button" onClick={() => setEditingCommentId(null)} className="rounded-lg border border-[#CBD5E1] px-3 py-1.5 text-xs font-bold">取消</button></div></div> : <p className="flex-1 whitespace-pre-wrap text-sm leading-6 text-[#334155]">{comment.body_text}</p>}<div className="flex shrink-0 flex-wrap gap-1">{isCommentOwner && editingCommentId !== comment.id && <><button type="button" onClick={() => { setEditingCommentId(comment.id); setEditingCommentBody(comment.body_text); }} className="text-xs font-bold text-[#475569]">編輯</button><button type="button" onClick={() => void removeComment(comment.id)} disabled={saving} className="text-xs font-bold text-[#B91C1C]">刪除</button></>}{isMember && !isCommentOwner && <button type="button" onClick={() => openReportDialog('forum_comment', comment.id)} disabled={saving} className="text-xs font-bold text-[#92400E]">檢舉</button>}</div></div><p className="mt-2 text-xs text-[#94A3B8]">{formatForumDate(comment.created_at)}</p></div>;
                 })}
                 {comments.length === 0 && <p className="text-sm text-[#64748B]">目前還沒有留言。</p>}
               </div>
