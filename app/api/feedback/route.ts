@@ -1,42 +1,70 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+import {
+  checkRateLimit,
+  clampText,
+  hasOversizedContent,
+  isRecord,
+  rateLimitResponse
+} from '@/lib/server/rateLimit';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const MAX_BODY_BYTES = 12_000;
+const MAX_AUTHOR_LENGTH = 80;
+const MAX_CONTENT_LENGTH = 2_000;
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(request, {
+    namespace: 'feedback',
+    limit: 5,
+    windowMs: 10 * 60 * 1000
+  });
+
+  if (!rateLimit.allowed) {
+    return rateLimitResponse(rateLimit.retryAfterSeconds, '回饋送出太頻繁，請稍後再試。');
+  }
+
+  if (hasOversizedContent(request, MAX_BODY_BYTES)) {
+    return NextResponse.json({ error: '回饋內容過大。' }, { status: 413 });
+  }
+
   try {
-    const { author, content, userId, isGuest } = await req.json();
-
-    if (!content || !content.trim()) {
-      return NextResponse.json({ error: '內容不能為空' }, { status: 400 });
+    const body: unknown = await request.json();
+    if (!isRecord(body)) {
+      return NextResponse.json({ error: '回饋格式不正確。' }, { status: 400 });
     }
 
-    const authorName = author || '匿名訪客';
+    const author = clampText(body.author, MAX_AUTHOR_LENGTH) || '匿名訪客';
+    const content = clampText(body.content, MAX_CONTENT_LENGTH).replace(/\u0000/g, '');
 
-    if (supabaseUrl && supabaseKey) {
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      
-      // 1. 嘗試寫入 feedbacks 表格
-      const { error: fbErr } = await supabase.from('feedbacks').insert({
-        author: authorName,
-        content: content.trim(),
-        created_at: new Date().toISOString()
-      });
+    if (!content) {
+      return NextResponse.json({ error: '內容不能為空。' }, { status: 400 });
+    }
 
-      // 2. 如果沒有 feedbacks 表格，Fallback 寫入 discussions 標註 node_id='author_feedback'
-      if (fbErr) {
-        await supabase.from('discussions').insert({
-          node_id: 'author_feedback',
-          author: authorName,
-          text: `【給作者的話】${content.trim()}`,
-          timestamp: Date.now()
-        });
-      }
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: '回饋服務目前未設定完成。' }, { status: 503 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+
+    const { error } = await supabase.from('feedbacks').insert({
+      author,
+      content,
+      created_at: new Date().toISOString()
+    });
+
+    if (error) {
+      console.error('Feedback insert error:', error);
+      return NextResponse.json({ error: '回饋暫時無法送出，請稍後再試。' }, { status: 503 });
     }
 
     return NextResponse.json({ success: true, message: '留言已成功傳送給作者！' });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || '傳送失敗' }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('Feedback API error:', error);
+    return NextResponse.json({ error: '回饋格式不正確。' }, { status: 400 });
   }
 }

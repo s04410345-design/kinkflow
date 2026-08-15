@@ -1,22 +1,50 @@
 import { NextResponse } from 'next/server';
 
+import {
+  checkRateLimit,
+  clampText,
+  hasOversizedContent,
+  isRecord,
+  rateLimitResponse
+} from '@/lib/server/rateLimit';
+
+const MAX_BODY_BYTES = 8_000;
+const MAX_TEXT_LENGTH = 500;
+
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(request, {
+    namespace: 'moderation',
+    limit: 30,
+    windowMs: 10 * 60 * 1000
+  });
+
+  if (!rateLimit.allowed) {
+    return rateLimitResponse(rateLimit.retryAfterSeconds, '送出過於頻繁，請稍後再試。');
+  }
+
+  if (hasOversizedContent(request, MAX_BODY_BYTES)) {
+    return NextResponse.json({ action: 'BLOCK', message: '留言內容過大。' }, { status: 413 });
+  }
+
   try {
-    const { text } = await request.json();
-
-    if (!text || text.trim().length === 0) {
-      return NextResponse.json({ action: 'BLOCK', message: '發言內容不能為空' }, { status: 200 });
+    const body: unknown = await request.json();
+    if (!isRecord(body)) {
+      return NextResponse.json({ action: 'BLOCK', message: '留言格式不正確。' }, { status: 400 });
     }
 
-    // 防洗版：限制字數或簡單檢查，暫時直接放行，避免消耗 AI API 額度
-    if (text.length > 500) {
-      return NextResponse.json({ action: 'BLOCK', message: '留言字數不能超過 500 字' }, { status: 200 });
+    const rawText = typeof body.text === 'string' ? body.text : '';
+    if (rawText.trim().length > MAX_TEXT_LENGTH) {
+      return NextResponse.json({ action: 'BLOCK', message: `留言字數不能超過 ${MAX_TEXT_LENGTH} 字。` });
     }
 
-    return NextResponse.json({ action: 'ALLOW', message: '審查通過' }, { status: 200 });
+    const text = clampText(rawText, MAX_TEXT_LENGTH).replace(/\u0000/g, '');
+    if (!text) {
+      return NextResponse.json({ action: 'BLOCK', message: '發言內容不能為空。' });
+    }
 
+    return NextResponse.json({ action: 'ALLOW', message: '審查通過' });
   } catch (error: unknown) {
-    console.error('Moderation API Error:', error);
-    return NextResponse.json({ action: 'ALLOW', message: '安全降級放行' }, { status: 200 });
+    console.error('Moderation API error:', error);
+    return NextResponse.json({ action: 'BLOCK', message: '留言格式不正確，請重新輸入。' }, { status: 400 });
   }
 }
