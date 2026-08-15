@@ -12,7 +12,16 @@ export default function AdminLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const checkAdminAndRedirect = async (userId: string) => {
+  const establishAdminSession = async (accessToken: string) => {
+    const response = await fetch("/api/admin/session", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentials: "include",
+    });
+    return response.ok;
+  };
+
+  const checkAdminAndRedirect = async (userId: string, accessToken?: string) => {
     const { data, error: roleError } = await supabase
       .from("admin_roles")
       .select("role_level")
@@ -22,6 +31,13 @@ export default function AdminLoginPage() {
     if (roleError || !data) {
       await supabase.auth.signOut();
       setError("此 Google 帳號沒有管理員權限。請確認你使用的是已授權的帳號。");
+      setLoading(false);
+      return false;
+    }
+
+    if (!accessToken || !(await establishAdminSession(accessToken))) {
+      await supabase.auth.signOut();
+      setError("後台安全驗證失敗，請重新登入。");
       setLoading(false);
       return false;
     }
@@ -36,7 +52,7 @@ export default function AdminLoginPage() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!active) return;
       if (session?.user) {
-        await checkAdminAndRedirect(session.user.id);
+        await checkAdminAndRedirect(session.user.id, session.access_token);
       } else {
         setLoading(false);
       }
@@ -45,7 +61,7 @@ export default function AdminLoginPage() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user && active) {
         window.setTimeout(() => {
-          void checkAdminAndRedirect(session.user.id);
+          void checkAdminAndRedirect(session.user.id, session.access_token);
         }, 0);
       }
     });
@@ -72,7 +88,7 @@ export default function AdminLoginPage() {
       return;
     }
 
-    await checkAdminAndRedirect(data.user.id);
+    await checkAdminAndRedirect(data.user.id, data.session?.access_token);
     setSubmitting(false);
   };
 

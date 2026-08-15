@@ -71,6 +71,7 @@ export function useAdminAuth(): AdminAuthState & { logout: () => Promise<void> }
   }, []);
 
   const logout = async () => {
+    await fetch('/api/admin/session', { method: 'DELETE', credentials: 'include' });
     await supabase.auth.signOut();
     setIsAuth(false);
     setAdminLevel(null);

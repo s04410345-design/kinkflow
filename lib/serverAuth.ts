@@ -55,7 +55,7 @@ export async function requireAdmin(request: Request, minimumRole = 2): Promise<{
     .eq('user_id', result.user.id)
     .maybeSingle();
 
-  if (error || !role || role.role_level > minimumRole) {
+  if (error || !role || !Number.isInteger(role.role_level) || role.role_level > minimumRole) {
     return { response: Response.json({ error: 'Administrator permission required' }, { status: 403 }) };
   }
 
