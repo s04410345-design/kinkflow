@@ -211,18 +211,28 @@ export async function fetchAdminDiscussionItems(): Promise<{ posts: AdminDiscuss
 }
 
 export async function deleteAdminDiscussion(item: AdminDiscussionItem): Promise<{ ok: boolean; message?: string }> {
-  if (item.isReply && item.parentId !== undefined) {
-    const { data: parent, error: parentError } = await supabase.from('discussions').select('replies').eq('id', item.parentId).single();
-    if (parentError) return { ok: false, message: parentError.message };
-    const parentRecord = asRecord(parent);
-    const replies = Array.isArray(parentRecord.replies) ? parentRecord.replies.filter((reply) => {
-      const record = asRecord(reply);
-      return String(record.id) !== String(item.id);
-    }) : [];
-    const { error } = await supabase.from('discussions').update({ replies }).eq('id', item.parentId);
-    return error ? { ok: false, message: error.message } : { ok: true };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) return { ok: false, message: '管理員登入狀態已失效，請重新登入。' };
+
+  const discussionId = item.isReply && item.parentId !== undefined ? item.parentId : item.id;
+  const body = item.isReply ? JSON.stringify({ replyId: item.id }) : undefined;
+
+  try {
+    const response = await fetch(`/api/admin/discussions/${encodeURIComponent(String(discussionId))}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body } : {}),
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    return response.ok ? { ok: true } : { ok: false, message: payload.error || '刪除失敗，請確認管理員權限。' };
+  } catch {
+    return { ok: false, message: '刪除服務暫時無法連線，請稍後再試。' };
   }
-  return deleteDiscussion(item.id);
 }
 
 export async function deleteDiscussion(postId: string | number): Promise<{ ok: boolean; message?: string }> {
