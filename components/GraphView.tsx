@@ -736,8 +736,12 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
               targetPostId={targetPostId}
               onOpenArticle={onOpenArticle}
               onJump={(nid, pid) => {
-                const targetNode = nodesData.find(n => n.id === nid);
-                if (targetNode) onNodeClick(targetNode, pid);
+                const targetNode = (nodesData.length > 0 ? nodesData : graphNodes).find(n => n.id === nid);
+                if (targetNode) {
+                  onNodeClick(targetNode, pid);
+                } else {
+                  showToast('找不到對應的主題節點，請重新整理後再試。');
+                }
               }}
               nodesData={nodesData}
               goBack={goBack}

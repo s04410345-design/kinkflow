@@ -78,9 +78,10 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
 
   const globalStatsSummary = useMemo(() => {
     return (nodesData || []).map(n => {
-      const s = (appData && appData.stats && appData.stats[n.id]) || { need: 0, like: 0, curious: 0, neutral: 0, dislike: 0 };
+      const s = (appData && appData.stats && appData.stats[n.id]) || { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
       const positive = (s.need || 0) + (s.like || 0) + (s.curious || 0);
-      const total = positive + (s.neutral || 0) + (s.dislike || 0);
+      const negative = typeof s.nope === 'number' ? s.nope : (s.dislike || 0);
+      const total = positive + (s.neutral || 0) + negative;
       return { id: n.id, label: n.label, positive, total, stats: s };
     }).sort((a, b) => b.total - a.total || b.positive - a.positive);
   }, [appData.stats, nodesData]);
