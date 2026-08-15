@@ -1,35 +1,16 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-
-export interface ProfileModuleConfig {
-  id: string;
-  name: string;
-  visible: boolean;
-  order: number;
-  column?: 'left' | 'right' | 'full';
-}
-
-export interface ProfileLayoutConfig {
-  theme: 'default' | 'glass' | 'dark' | 'minimal';
-  modules: ProfileModuleConfig[];
-}
-
-const DEFAULT_CONFIG: ProfileLayoutConfig = {
-  theme: 'default',
-  modules: [
-    { id: 'header', name: '👤 基本資料 (頭像與名稱)', visible: true, order: 0, column: 'left' },
-    { id: 'stats', name: '📈 互動數據 (發言與註冊時間)', visible: true, order: 1, column: 'left' },
-    { id: 'radar', name: '📊 偏好雷達圖 (即時喜好度)', visible: false, order: 2, column: 'right' },
-    { id: 'hot_posts', name: '🔥 最熱門發言', visible: true, order: 3, column: 'right' },
-    { id: 'latest_posts', name: '🕒 最新留言', visible: true, order: 4, column: 'right' },
-    { id: 'quiz_result', name: '👑 測驗結果 (靈魂印記)', visible: true, order: 5, column: 'right' },
-  ]
-};
+import {
+  DEFAULT_PROFILE_LAYOUT,
+  fetchProfileLayout,
+  saveProfileLayout,
+  seedDefaultWorkspace,
+  type ProfileLayoutConfig,
+} from '@/lib/data/adminSettings';
 
 export default function ProfileLayoutEditor() {
-  const [config, setConfig] = useState<ProfileLayoutConfig>(DEFAULT_CONFIG);
+  const [config, setConfig] = useState<ProfileLayoutConfig>(DEFAULT_PROFILE_LAYOUT);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -41,26 +22,9 @@ export default function ProfileLayoutEditor() {
   const fetchConfig = async () => {
     setLoading(true);
     try {
-      const { data: dataArray, error } = await supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout');
-      const data = dataArray?.[0];
-      if (error && error.code !== 'PGRST116') throw error;
-      
-      if (data?.content) {
-        // Merge with default config to ensure all modules exist
-        const mergedModules = DEFAULT_CONFIG.modules.map(defMod => {
-          const found = data.content.modules.find((m: any) => m.id === defMod.id);
-          let col = found?.column;
-          if (!col) col = defMod.column || 'right';
-          return found ? { ...defMod, visible: found.visible, order: found.order ?? defMod.order, column: col as 'left' | 'right' } : defMod;
-        }).sort((a, b) => a.order - b.order);
-
-        setConfig({
-          theme: data.content.theme || 'default',
-          modules: mergedModules
-        });
-      }
+      setConfig(await fetchProfileLayout());
     } catch (err) {
-      console.error(err);
+      console.error('讀取版型設定失敗', err);
     } finally {
       setLoading(false);
     }
@@ -70,15 +34,12 @@ export default function ProfileLayoutEditor() {
     setSaving(true);
     setMessage('');
     try {
-      const { error } = await supabase.from('quiz_content').upsert({
-        key_name: 'profile_layout',
-        content: config
-      }, { onConflict: 'key_name' });
-      if (error) throw error;
+      await saveProfileLayout(config);
       setMessage('✅ 個人簡介版型已成功儲存與發布！');
       setTimeout(() => setMessage(''), 3000);
-    } catch (err: any) {
-      setMessage(`❌ 儲存失敗：${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知錯誤';
+      setMessage(`❌ 儲存失敗：${message}`);
     } finally {
       setSaving(false);
     }
@@ -136,29 +97,11 @@ export default function ProfileLayoutEditor() {
                   if (!confirm('確定要全自動設定 Supabase 後台嗎？這將會一次性寫入【10 大精簡節點】與【莫蘭迪和風預設主題】至資料庫，讓前台即時連動！')) return;
                   setSaving(true);
                   try {
-                    const tenNodes = [
-                      { "id": "bdsm", "level": 0, "radius": 45, "color": "#E8C5C8", "label": "BDSM大廳", "desc": "BDSM 世界的起點。", "crossLinks": [] },
-                      { "id": "community_safety", "level": 1, "radius": 35, "color": "#F3A6A6", "label": "社群與安全防護", "desc": "進入實踐前不可或缺的安全基石。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "bondage", "level": 1, "radius": 35, "color": "#A6C8F3", "label": "繩藝與肢體束縛", "desc": "日式繩縛 (Shibari)、手銬與限制。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "ds_main", "level": 1, "radius": 35, "color": "#E8A6F3", "label": "支配與臣服動態", "desc": "Dom & Sub 權力交接、稱呼與契約。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "sm_main", "level": 1, "radius": 35, "color": "#F3C8A6", "label": "施虐與痛覺體驗", "desc": "鞭打、拍打、滴蠟與身體感官。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "sensory_deprivation", "level": 1, "radius": 35, "color": "#A6C8F3", "label": "感官剝奪與剝離", "desc": "眼罩、耳罩白噪音與感覺剝奪。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "scenario_play", "level": 1, "radius": 35, "color": "#B5C4B1", "label": "情境劇本與扮演", "desc": "角色扮演、Pet Play 與年齡退行。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "mental_control", "level": 1, "radius": 35, "color": "#E8A6F3", "label": "心理控制與催眠", "desc": "催眠引導、心理暗示與精神臣服。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "consensus_risk", "level": 1, "radius": 35, "color": "#F3A6A6", "label": "知情同意與溝通", "desc": "安全詞、溝通儀式與事後撫慰 (Aftercare)。", "parent": "bdsm", "crossLinks": [] },
-                      { "id": "diverse_relations", "level": 1, "radius": 35, "color": "#E8A6F3", "label": "多元關係與次文化", "desc": "多重關係、雙向 Switch 與圈內交流。", "parent": "bdsm", "crossLinks": [] }
-                    ];
-                    const defaultProfileLayout = {
-                      theme: "morandi",
-                      profileStyle: "morandi-classic",
-                      modules: config.modules
-                    };
-                    await supabase.from('quiz_content').upsert({ key_name: 'mindmap_data', content: tenNodes }, { onConflict: 'key_name' });
-                    await supabase.from('quiz_content').upsert({ key_name: 'mindmap_nodes', content: tenNodes }, { onConflict: 'key_name' });
-                    await supabase.from('quiz_content').upsert({ key_name: 'profile_layout', content: defaultProfileLayout }, { onConflict: 'key_name' });
+                    await seedDefaultWorkspace(config);
                     setMessage('🎉 成功！已為您將 10 大精簡節點與莫蘭迪和風主題全自動寫入資料庫！前台重整即可連動生效！');
-                  } catch (e: any) {
-                    setMessage(`❌ 自動寫入失敗：${e.message}`);
+                  } catch (e) {
+                    const message = e instanceof Error ? e.message : '未知錯誤';
+                    setMessage(`❌ 自動寫入失敗：${message}`);
                   } finally {
                     setSaving(false);
                   }

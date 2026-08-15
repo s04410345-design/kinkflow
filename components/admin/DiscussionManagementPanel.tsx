@@ -1,23 +1,12 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { deleteAdminDiscussion, fetchAdminDiscussionItems, type AdminDiscussionItem } from '@/lib/data/admin';
 import { AuthorName } from '@/components/Comment';
 import { Search, Trash2, RefreshCw, MessageSquare, ThumbsUp } from 'lucide-react';
 import { formatDiscussionDate, parseDiscussionDate } from '@/lib/contentModel';
 
-interface PostItem {
-  id: string | number;
-  author: string;
-  text: string;
-  upvotes: number;
-  timestamp: number | string | null | undefined;
-  node_id?: string;
-  replies?: any[];
-  emojis?: any[];
-  isReply?: boolean;
-  parentId?: string | number;
-}
+type PostItem = AdminDiscussionItem;
 
 export default function DiscussionManagementPanel() {
   const [posts, setPosts] = useState<PostItem[]>([]);
@@ -33,61 +22,10 @@ export default function DiscussionManagementPanel() {
   const fetchDiscussions = async () => {
     setLoading(true);
     try {
-      // 1. Fetch mindmap node names
-      const { data: mdArr } = await supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data');
-      const md = mdArr?.[0];
-      const nMap: Record<string, string> = {
-        'lobby_chat': '即時聊天大廳',
-        'lobby_board': '討論交流大廳'
-      };
-      if (md?.content && Array.isArray(md.content)) {
-        md.content.forEach((n: any) => {
-          if (n.id && n.label) nMap[n.id] = n.label;
-        });
-      }
-      setNodeNames(nMap);
-
-      // 2. Fetch all discussions
-      const { data, error } = await supabase
-        .from('discussions')
-        .select('*');
-
-      if (error) throw error;
-
-      if (data) {
-        const flattenedList: PostItem[] = [];
-        data.forEach((item: any) => {
-          const mainPost: PostItem = {
-            id: item.id,
-            author: item.author || '匿名',
-            text: item.text || '',
-            upvotes: item.upvotes || 0,
-            timestamp: item.timestamp || Date.now(),
-            node_id: item.node_id || 'lobby_board',
-            replies: item.replies || [],
-            emojis: item.emojis || []
-          };
-          flattenedList.push(mainPost);
-
-          // Flatten sub-replies as well so admin can manage any reply directly
-          if (Array.isArray(item.replies)) {
-            item.replies.forEach((reply: any) => {
-              flattenedList.push({
-                id: reply.id,
-                author: reply.author || '匿名',
-                text: reply.text || '',
-                upvotes: reply.upvotes || 0,
-                timestamp: reply.timestamp || item.timestamp || Date.now(),
-                node_id: item.node_id || 'lobby_board',
-                isReply: true,
-                parentId: item.id
-              });
-            });
-          }
-        });
-        setPosts(flattenedList);
-      }
-    } catch (err: any) {
+      const result = await fetchAdminDiscussionItems();
+      setNodeNames(result.nodeNames);
+      setPosts(result.posts);
+    } catch (err) {
       console.error('Failed to fetch discussions:', err);
     } finally {
       setLoading(false);
@@ -98,21 +36,12 @@ export default function DiscussionManagementPanel() {
     if (!window.confirm(`確定要刪除 ${post.author} 的這條${post.isReply ? '回覆' : '主貼文'}嗎？`)) return;
 
     try {
-      if (post.isReply && post.parentId) {
-        // Delete sub-reply: fetch parent, filter out reply, update
-        const { data: parent } = await supabase.from('discussions').select('replies').eq('id', post.parentId).single();
-        if (parent) {
-          const newReplies = (parent.replies || []).filter((r: any) => String(r.id) !== String(post.id));
-          await supabase.from('discussions').update({ replies: newReplies }).eq('id', post.parentId);
-        }
-      } else {
-        // Delete main post
-        await supabase.from('discussions').delete().eq('id', post.id);
-      }
+      const result = await deleteAdminDiscussion(post);
+      if (!result.ok) throw new Error(result.message || '刪除失敗');
       setPosts(prev => prev.filter(p => String(p.id) !== String(post.id)));
       alert('刪除成功！');
-    } catch (err: any) {
-      alert('刪除失敗: ' + err.message);
+    } catch (err) {
+      alert('刪除失敗: ' + (err instanceof Error ? err.message : '未知錯誤'));
     }
   };
 

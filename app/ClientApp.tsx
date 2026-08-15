@@ -8,13 +8,12 @@
  * ============================================================
  */
 "use client";
-// @ts-nocheck
-
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import Papa from 'papaparse';
-import type { GraphNode, GraphLink, AppData, DiscussionPost, VoteStats } from '@/lib/types';
-import { quizQuestions, initialAppData, SafeStorage } from '@/lib/constants';
+import type { GraphNode } from '@/lib/types';
+import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
+import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
+import { SafeStorage } from '@/lib/constants';
 import { graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AuthModal from '@/components/AuthModal';
@@ -31,14 +30,20 @@ import AboutModal from '@/components/AboutModal';
 import { AuthorName } from '@/components/Comment';
 import { useAuth } from '@/hooks/useAuth';
 import { useSupabaseSync } from '@/hooks/useSupabaseSync';
+import { useAppBootstrap } from '@/hooks/useAppBootstrap';
+import { usePersistedAppData } from '@/hooks/usePersistedAppData';
+import { removeGuestName } from '@/lib/persistence/appStorage';
+import { formatGuestName, saveGuestName } from '@/lib/auth/identity';
 import { QuizConfigContext } from '@/components/QuizContext';
 import StyleConfigModal from '@/components/StyleConfigModal';
-import { extractDiscussionContent, parseDiscussionDate } from '@/lib/contentModel';
+import { parseDiscussionDate } from '@/lib/contentModel';
 
 // ================= 主要元件 =================
 export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const { userName, setUserName, userId, setUserId, isGuest, setIsGuest, authMode, setAuthMode, showAuthModal, setShowAuthModal } = useAuth();
-  const { appData, setAppData, nodesData, setNodesData, linksData, setLinksData, dbLoaded, setDbLoaded } = useSupabaseSync();
+  const { appData, setAppData, nodesData, linksData, dbLoaded } = useSupabaseSync();
+  const { isMounted } = useAppBootstrap({ setAppData });
+  const updateAppData = usePersistedAppData(setAppData);
 
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'graph' | 'quiz' | 'articles' | 'forum'>('graph');
@@ -48,8 +53,6 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginInput, setLoginInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [isMounted, setIsMounted] = useState(false);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [articleModal, setArticleModal] = useState<{title: string, content: string} | null>(null);
   const [hasAgreed18, setHasAgreed18] = useState(false);
@@ -190,40 +193,29 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     const fallbackInterval = setInterval(async () => {
       if (document.visibilityState === 'hidden') return;
       try {
-        const { data: dbDiscussions } = await supabase.from('discussions').select('*').limit(500);
-        if (dbDiscussions) {
+        const [{ data: dbDiscussions }, lobbyChatRows] = await Promise.all([
+          supabase.from('discussions').select('*').limit(500),
+          fetchLobbyChat(200),
+        ]);
+        if (Array.isArray(dbDiscussions)) {
+          const cleanedDiscussions = groupDiscussionRows(dbDiscussions as DiscussionRow[]);
+          if (lobbyChatRows.length > 0) cleanedDiscussions.lobby_chat = lobbyChatRows.map(lobbyChatToDiscussionPost);
           setAppData(prev => {
             const next = { ...prev, discussions: { ...prev.discussions } };
-            const cleanedDiscussions: Record<string, DiscussionPost[]> = {};
-            
-            dbDiscussions.forEach(d => {
-              const k = d.node_id;
-              if (!cleanedDiscussions[k]) cleanedDiscussions[k] = [];
-              cleanedDiscussions[k].push({
-                id: d.id,
-                author: d.author || '匿名會員',
-                text: d.text || d.body || '',
-                ...extractDiscussionContent(d.text || d.body || '', d.title, d.body, d.media),
-                upvotes: Number(d.upvotes || 0),
-                timestamp: d.timestamp,
-                replies: d.replies || [],
-                emojis: d.emojis || []
-              });
-            });
 
-            // Merge safely to preserve local state like optimistic updates
+            // Merge safely to preserve local state like optimistic updates.
             for (const k in next.discussions) {
               const optimistics = next.discussions[k].filter(p => typeof p.id === 'string' && String(p.id).startsWith('temp_'));
               const fromDb = cleanedDiscussions[k] || [];
               next.discussions[k] = [...fromDb, ...optimistics].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
               delete cleanedDiscussions[k];
             }
-            
-            // Add any newly discovered nodes
+
+            // Add any newly discovered nodes.
             for (const k in cleanedDiscussions) {
               next.discussions[k] = cleanedDiscussions[k].sort((a, b) => (parseDiscussionDate(a.timestamp)?.getTime() || 0) - (parseDiscussionDate(b.timestamp)?.getTime() || 0));
             }
-            
+
             return next;
           });
         }
@@ -254,51 +246,11 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     };
   }, [nodesData]);
 
-  // ===== Client mount & 快取讀取 =====
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsMounted(true);
-    const cachedData = SafeStorage.get('kinkflow_data') as AppData | null;
-    if (cachedData) {
-      // 自動修復被舊版 Bug 弄壞的重複資料
-      const cleanedDiscussions: Record<string, DiscussionPost[]> = {};
-      for (const [key, posts] of Object.entries(cachedData.discussions || {})) {
-        const seenPostIds = new Set<string | number>();
-        cleanedDiscussions[key] = (posts as DiscussionPost[]).filter(p => {
-          if (seenPostIds.has(p.id)) return false;
-          seenPostIds.add(p.id);
-          if (p.replies) {
-             const seenReplyKeys = new Set<string>();
-             p.replies = p.replies.filter(r => {
-                const dupKey = `${r.author}_${r.text}`;
-                if (seenReplyKeys.has(dupKey)) return false;
-                seenReplyKeys.add(dupKey);
-                return true;
-             });
-          }
-          return true;
-        });
-      }
-      setAppData({ ...initialAppData, ...cachedData, discussions: cleanedDiscussions });
-    }
-    const cachedUser = SafeStorage.get('kinkflow_user') as string | null;
-    if (cachedUser) setUserName(cachedUser);
-  }, []);
-
-  const saveAppData = (newData: AppData | ((prev: AppData) => AppData)) => {
-    setAppData((prev) => {
-      const resolved = typeof newData === 'function' ? newData(prev) : newData;
-      SafeStorage.set('kinkflow_data', resolved);
-      return resolved;
-    });
-  };
-
   // ===== 訪客登入 =====
   const handleLogin = async (name: string) => {
-    const cleanName = name.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-    const finalName = cleanName + ' 👻';
+    const finalName = formatGuestName(name);
     setUserName(finalName);
-    SafeStorage.set('kinkflow_user', finalName);
+    saveGuestName(finalName);
     setIsGuest(true);
 
     (async () => {
@@ -339,7 +291,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     await supabase.auth.signOut();
     setUserName(null);
     setUserId(null);
-    SafeStorage.remove('kinkflow_user');
+    removeGuestName();
   };
 
   // ===== 載入畫面 =====
@@ -550,7 +502,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
               userName={userName!}
               isGuest={isGuest}
               appData={appData}
-              setAppData={setAppData}
+              setAppData={updateAppData}
               showToast={showToast}
               onOpenIframe={setIframeUrl}
               targetPostId={targetPostId}
