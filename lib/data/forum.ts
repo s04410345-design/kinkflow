@@ -193,11 +193,24 @@ export async function deleteForumComment(commentId: string): Promise<{ ok: boole
   return error ? { ok: false, message: errorMessage(error, '刪除留言失敗，請稍後再試。') } : { ok: true };
 }
 
-export async function reportForumContent(targetType: 'forum_post' | 'forum_comment', targetId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
-  const userId = await currentUserId();
-  if (!userId) return { ok: false, message: '請先登入會員才能檢舉。' };
-  const safeReason = reason.trim();
-  if (!safeReason || safeReason.length > 500) return { ok: false, message: '檢舉原因必須為 1 至 500 字。' };
-  const { error } = await supabase.from('reports').insert({ reporter_id: userId, target_type: targetType, target_id: targetId, reason: safeReason, status: 'open' });
-  return error ? { ok: false, message: errorMessage(error, '檢舉送出失敗，請稍後再試。') } : { ok: true };
+export type ReportCategory = 'spam' | 'harassment' | 'safety' | 'privacy' | 'illegal' | 'hate' | 'self_harm' | 'misinformation' | 'other';
+
+export async function reportForumContent(targetType: 'forum_post' | 'forum_comment', targetId: string, category: ReportCategory, details: string): Promise<{ ok: boolean; message?: string }> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) return { ok: false, message: '請先登入會員才能檢舉。' };
+  const safeDetails = details.trim();
+  if (!safeDetails || safeDetails.length > 2000) return { ok: false, message: '補充說明必須為 1 至 2,000 字。' };
+
+  try {
+    const response = await fetch('/api/reports', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetType, targetId, category, details: safeDetails }),
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    return response.ok ? { ok: true } : { ok: false, message: payload.error || '檢舉送出失敗，請稍後再試。' };
+  } catch {
+    return { ok: false, message: '檢舉服務暫時無法連線，請稍後再試。' };
+  }
 }

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import MarkdownPreview from '@/components/MarkdownPreview';
 
 interface ArticleModalProps {
   isOpen: boolean;
@@ -48,11 +47,7 @@ export default function ArticleModal({ isOpen, onClose, title, markdownContent }
         
         {/* 文章內容區塊 */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
-          <div className="prose prose-stone max-w-none prose-headings:text-[#4A4238] prose-a:text-[#D47A7A] hover:prose-a:text-[#C5D4B6] prose-img:rounded-xl prose-img:shadow-md">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {markdownContent}
-            </ReactMarkdown>
-          </div>
+          <MarkdownPreview markdown={markdownContent} />
         </div>
       </div>
 

@@ -20,6 +20,7 @@ export type EditableArticle = {
   created_at: string;
   updated_at: string;
   published_at?: string | null;
+  nodeIds?: string[];
 };
 
 function errorMessage(error: { message?: string } | null, fallback: string): string {
@@ -54,7 +55,16 @@ export async function fetchMyArticles(): Promise<EditableArticle[]> {
   const userId = await getUserId();
   if (!userId) return [];
   const { data } = await supabase.from('articles').select('id,title,excerpt,body_json,status,created_at,updated_at,published_at').eq('author_id', userId).order('updated_at', { ascending: false }).limit(50);
-  return (data || []) as EditableArticle[];
+  const articles = (data || []) as EditableArticle[];
+  if (!articles.length) return articles;
+  const { data: links } = await supabase.from('article_node_links').select('article_id,node_id').in('article_id', articles.map((article) => article.id));
+  const nodesByArticle = new Map<string, string[]>();
+  (links || []).forEach((link) => {
+    const current = nodesByArticle.get(String(link.article_id)) || [];
+    current.push(String(link.node_id));
+    nodesByArticle.set(String(link.article_id), current);
+  });
+  return articles.map((article) => ({ ...article, nodeIds: nodesByArticle.get(article.id) || [] }));
 }
 
 export async function createArticleDraft(title: string, excerpt: string, markdown: string, nodeIds: string[] = []): Promise<{ ok: boolean; articleId?: string; message?: string }> {
@@ -69,11 +79,20 @@ export async function createArticleDraft(title: string, excerpt: string, markdow
   return { ok: true, articleId: data.id };
 }
 
-export async function updateArticleDraft(articleId: string, title: string, excerpt: string, markdown: string): Promise<{ ok: boolean; message?: string }> {
+export async function updateArticleDraft(articleId: string, title: string, excerpt: string, markdown: string, nodeIds: string[] = []): Promise<{ ok: boolean; articleId?: string; message?: string }> {
   const userId = await getUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const { error } = await supabase.from('articles').update({ title: title.trim(), excerpt: excerpt.trim(), body_json: { markdown: markdown.trim() }, updated_at: new Date().toISOString() }).eq('id', articleId).eq('author_id', userId).in('status', ['draft', 'published']);
-  return error ? { ok: false, message: errorMessage(error, '儲存文章失敗，請稍後再試。') } : { ok: true };
+  if (error) return { ok: false, message: errorMessage(error, '儲存文章失敗，請稍後再試。') };
+
+  const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean).slice(0, 3);
+  const { error: deleteLinksError } = await supabase.from('article_node_links').delete().eq('article_id', articleId);
+  if (deleteLinksError) return { ok: false, message: errorMessage(deleteLinksError, '文章已儲存，但節點關聯更新失敗。') };
+  if (uniqueNodeIds.length) {
+    const { error: insertLinksError } = await supabase.from('article_node_links').insert(uniqueNodeIds.map((nodeId) => ({ article_id: articleId, node_id: nodeId, relation_type: 'primary' })));
+    if (insertLinksError) return { ok: false, message: errorMessage(insertLinksError, '文章已儲存，但節點關聯更新失敗。') };
+  }
+  return { ok: true, articleId };
 }
 
 export async function publishArticle(articleId: string): Promise<{ ok: boolean; message?: string }> {
