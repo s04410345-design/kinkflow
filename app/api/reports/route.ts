@@ -7,9 +7,6 @@ const REPORT_CATEGORIES = ['spam', 'harassment', 'safety', 'privacy', 'illegal',
 const TARGET_TYPES = ['forum_post', 'forum_comment'] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-type ReportCategory = typeof REPORT_CATEGORIES[number];
-type TargetType = typeof TARGET_TYPES[number];
-
 function isAllowed<T extends readonly string[]>(value: string, values: T): value is T[number] {
   return values.includes(value as T[number]);
 }
@@ -37,7 +34,7 @@ export async function POST(request: Request) {
 
     const table = targetType === 'forum_post' ? 'forum_posts' : 'forum_comments';
     const { data: target, error: targetError } = await auth.client.from(table).select('id,author_id,status').eq('id', targetId).maybeSingle();
-    if (targetError || !target || !['published', 'locked'].includes(String(target.status))) return NextResponse.json({ error: '找不到可檢舉的公開內容。' }, { status: 404 });
+    if (targetError || !target || target.status !== 'published') return NextResponse.json({ error: '找不到可檢舉的公開內容。' }, { status: 404 });
     if (target.author_id === auth.user.id) return NextResponse.json({ error: '不能檢舉自己的內容。' }, { status: 400 });
 
     const { error } = await auth.client.from('reports').insert({
