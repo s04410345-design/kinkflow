@@ -120,9 +120,9 @@ export default function ProfileModal({
         const rawDate = profileData?.created_at || quizData?.content?.joinedAt;
         joinedAt = rawDate ? new Date(rawDate).toLocaleDateString('zh-TW') : new Date().toLocaleDateString('zh-TW');
 
-        let topTrait = quizData?.content?.top_trait || '尚未測驗';
-        let quizScores = quizData?.content?.scores || null;
-        let quizAiAnalysis = quizData?.content?.aiAnalysis || '';
+        const topTrait = quizData?.content?.top_trait || '尚未測驗';
+        const quizScores = quizData?.content?.scores || null;
+        const quizAiAnalysis = quizData?.content?.aiAnalysis || '';
 
         // 查發言/留言 (使用 .in 安全查詢)
         const { data: dbComments } = await supabase
@@ -137,7 +137,7 @@ export default function ProfileModal({
           posts = dbComments.map(d => {
             const n = nodesData.find(gn => gn.id === d.node_id);
             let nodeName = n?.label || '未知節點';
-            let nodeColor = n?.color || '#E8C5C8';
+            const nodeColor = n?.color || '#E8C5C8';
             if (d.node_id === 'lobby_chat') {
               nodeName = '即時聊天';
             } else if (d.node_id === 'lobby_board') {
@@ -302,7 +302,7 @@ export default function ProfileModal({
   const theme = layoutConfig?.theme || 'default';
   const pStyle = layoutConfig?.profileStyle || 'morandi-classic';
   
-  let containerStyle = {};
+  const containerStyle = {};
   let containerClass = "rounded-[2.5rem] w-full max-w-4xl shadow-2xl relative animate-slide-up border-2 transition-all flex flex-col overflow-hidden";
   
   if (pStyle === 'moonlight-gold') {

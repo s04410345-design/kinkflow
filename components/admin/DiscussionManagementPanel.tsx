@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { deleteAdminDiscussion, fetchAdminDiscussionItems, type AdminDiscussionItem } from '@/lib/data/admin';
 import { AuthorName } from '@/components/Comment';
 import { Search, Trash2, RefreshCw, MessageSquare, ThumbsUp } from 'lucide-react';
-import { formatDiscussionDate, parseDiscussionDate } from '@/lib/contentModel';
+import { formatDiscussionDate } from '@/lib/contentModel';
 
 type PostItem = AdminDiscussionItem;
 
@@ -15,11 +15,7 @@ export default function DiscussionManagementPanel() {
   const [nodeFilter, setNodeFilter] = useState<string>('all');
   const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    fetchDiscussions();
-  }, []);
-
-  const fetchDiscussions = async () => {
+  const fetchDiscussions = useCallback(async () => {
     setLoading(true);
     try {
       const result = await fetchAdminDiscussionItems();
@@ -27,12 +23,16 @@ export default function DiscussionManagementPanel() {
       setPosts(result.posts);
       return result;
     } catch (err) {
-      console.error('Failed to fetch discussions:', err);
+      console.error('留言讀取失敗：', err);
       return null;
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchDiscussions();
+  }, [fetchDiscussions]);
 
   const handleDeletePost = async (post: PostItem) => {
     if (!window.confirm(`確定要刪除 ${post.author} 的這條${post.isReply ? '回覆' : '主貼文'}嗎？`)) return;
@@ -46,7 +46,7 @@ export default function DiscussionManagementPanel() {
         return String(item.id) === String(post.id) || String(item.parentId) === String(post.id);
       });
       if (stillExists) throw new Error('刪除後資料仍存在，請重新整理後台或檢查資料庫權限。');
-      alert('刪除成功！');
+      alert(result.message ? `刪除成功，但有警告：${result.message}` : '刪除成功！');
     } catch (err) {
       alert('刪除失敗: ' + (err instanceof Error ? err.message : '未知錯誤'));
     }

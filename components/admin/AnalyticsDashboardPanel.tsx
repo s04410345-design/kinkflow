@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import {
   buildActivityStats,
@@ -37,11 +37,7 @@ export default function AnalyticsDashboardPanel() {
   // 圖表分頁模式 (4種切換)
   const [chartTab, setChartTab] = useState<'five_cats' | 'top_10' | 'bottom_10' | 'axes_10'>('five_cats');
 
-  useEffect(() => {
-    void fetchAnalyticsData();
-  }, []);
-
-  const fetchAnalyticsData = async () => {
+  const fetchAnalyticsData = useCallback(async () => {
     setRefreshing(true);
     try {
       const data = await fetchAdminAnalyticsData();
@@ -52,12 +48,16 @@ export default function AnalyticsDashboardPanel() {
       setNodeStatsContent(data.nodeStatsContent);
       setMindmapNodes(data.mindmapNodes);
     } catch (error) {
-      console.error('Fetch analytics failed:', error);
+      console.error('統計資料讀取失敗：', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchAnalyticsData();
+  }, [fetchAnalyticsData]);
 
   const { fiveCategoriesData, top10Popular, bottom10Unpopular, tenAxesData } = useMemo(
     () => buildQuizChartData(quizResults),
@@ -121,10 +121,10 @@ export default function AnalyticsDashboardPanel() {
 
         <button
           onClick={fetchAnalyticsData}
-          disabled={refreshing}
+          disabled={loading || refreshing}
           className="px-4 py-2.5 bg-[#F5EFE6] hover:bg-[#E8C5C8]/30 text-[#4A4238] font-bold rounded-xl text-xs transition-all border border-[#D1C6B4]/40 flex items-center gap-1.5"
         >
-          <span className={refreshing ? 'animate-spin' : ''}>🔄</span> {refreshing ? '刷新中...' : '重新整理全站數據'}
+          <span className={refreshing ? 'animate-spin' : ''}>🔄</span> {loading ? '載入中...' : refreshing ? '刷新中...' : '重新整理全站數據'}
         </button>
       </div>
 

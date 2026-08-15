@@ -210,7 +210,7 @@ export async function fetchAdminDiscussionItems(): Promise<{ posts: AdminDiscuss
   return { posts, nodeNames };
 }
 
-export async function deleteAdminDiscussion(item: AdminDiscussionItem): Promise<{ ok: boolean; message?: string }> {
+export async function deleteAdminDiscussion(item: AdminDiscussionItem): Promise<{ ok: boolean; auditLogged?: boolean; message?: string }> {
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
   if (!accessToken) return { ok: false, message: '管理員登入狀態已失效，請重新登入。' };
@@ -228,8 +228,10 @@ export async function deleteAdminDiscussion(item: AdminDiscussionItem): Promise<
       ...(body ? { body } : {}),
       cache: 'no-store',
     });
-    const payload = await response.json().catch(() => ({})) as { error?: string };
-    return response.ok ? { ok: true } : { ok: false, message: payload.error || '刪除失敗，請確認管理員權限。' };
+    const payload = await response.json().catch(() => ({})) as { error?: string; warning?: string; auditLogged?: boolean };
+    return response.ok
+      ? { ok: true, auditLogged: payload.auditLogged, message: payload.warning }
+      : { ok: false, message: payload.error || '刪除失敗，請確認管理員權限。' };
   } catch {
     return { ok: false, message: '刪除服務暫時無法連線，請稍後再試。' };
   }

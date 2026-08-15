@@ -256,8 +256,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
          .attr("fill", "transparent")
          .style("pointer-events", "all");
 
-      let initOffsetX = width / 2;
-      let initOffsetY = height / 2;
+      const initOffsetX = width / 2;
+      const initOffsetY = height / 2;
       
       const initScale = 0.75;
       const initialTransform = d3.zoomIdentity.translate(initOffsetX, initOffsetY).scale(initScale);
