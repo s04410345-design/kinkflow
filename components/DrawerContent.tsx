@@ -184,8 +184,8 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     .map(p => ({ ...p, isHot: true }));
 
   return (
-    <div className="drawer-panel drawer-container flex flex-col h-full relative text-inherit overflow-y-auto overscroll-none scrollbar-thin scrollbar-thumb-[#D1C6B4] scrollbar-track-transparent">
-      <div className="p-6 pb-4 border-b border-[#D1C6B4]/20 bg-white/80 shrink-0 relative">
+    <div className="drawer-panel drawer-container flex min-h-0 max-h-[100dvh] flex-col relative text-inherit overflow-hidden overscroll-none scrollbar-thin scrollbar-thumb-[#D1C6B4] scrollbar-track-transparent">
+      <div className="shrink-0 border-b border-[#D1C6B4]/20 bg-white/80 p-4 pb-3 relative sm:p-6 sm:pb-4">
         <button onClick={closeDrawer} className="absolute top-5 right-5 p-3 bg-[#E8C5C8]/90 text-white rounded-full hover:bg-[#D9B650] shadow-md transition-transform hover:scale-110 active:scale-95 font-bold z-50 text-lg flex items-center justify-center w-10 h-10">✕</button>
         
         {canGoBack && goBack && (
@@ -277,7 +277,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
         )}
       </div>
 
-      <div className="flex-1 p-6 bg-[#FDFBF7]/50 relative flex flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#FDFBF7]/50 p-4 pb-6 relative flex flex-col sm:p-6">
         {/* 大廳熱門排行：獨立渲染，不走 space-y-6 容器 */}
         {(node.level === 0 && lobbyTab === 'hot') && (
           <div className="animate-fade-in">
@@ -454,7 +454,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
       </div>
 
       {((node.level > 0 && nodeTab === 'chat') || (node.level === 0 && (lobbyTab === 'chat' || lobbyTab === 'board'))) && (
-        <div className="shrink-0 p-4 bg-white border-t border-[#D1C6B4]/20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] animate-slide-up">
+        <div className="shrink-0 border-t border-[#D1C6B4]/20 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] animate-slide-up sm:p-4">
           <form onSubmit={(e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); const form = e.currentTarget; const input = form.elements.namedItem('msg') as HTMLTextAreaElement; const v = input.value.trim(); if(v){ addPost(v); input.value=''; input.style.height = 'auto'; } }} className="flex gap-2 items-end">
             <button 
               type="button" 

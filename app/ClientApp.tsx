@@ -524,6 +524,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           <ErrorBoundary moduleName="專題誌">
             <ArticleFeature
               nodesData={nodesData.length > 0 ? nodesData : defaultGraphNodes}
+              isMember={!isGuest && Boolean(userId)}
               onBackToNode={(nodeId) => {
                 setActiveTab('graph');
                 const node = (nodesData.length > 0 ? nodesData : defaultGraphNodes).find((item) => item.id === nodeId);
@@ -538,6 +539,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
               nodesData={nodesData.length > 0 ? nodesData : defaultGraphNodes}
               discussions={appData.discussions}
               isMember={!isGuest && Boolean(userId)}
+              currentUserId={userId}
             />
           </ErrorBoundary>
         )}
