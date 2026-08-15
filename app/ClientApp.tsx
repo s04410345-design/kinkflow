@@ -11,16 +11,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { GraphNode } from '@/lib/types';
+import ClientAppModules from '@/components/ClientAppModules';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
 import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
 import { SafeStorage } from '@/lib/constants';
 import { graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
-import ErrorBoundary from '@/components/ErrorBoundary';
 import AuthModal from '@/components/AuthModal';
-import GraphView from '@/components/GraphView';
-import QuizView from '@/components/QuizView';
-import ArticleFeature from '@/components/ArticleFeature';
-import ForumFeature from '@/components/ForumFeature';
 import AiChatbot from '@/components/AiChatbot';
 import AgreementModal from '@/components/AgreementModal';
 import NotificationDropdown from '@/components/NotificationDropdown';
@@ -493,56 +490,34 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       
       {/* 主內容區 */}
       <div className="flex-1 relative overflow-hidden">
-        {activeTab === 'graph' && (
-          <ErrorBoundary moduleName="網路圖探索">
-            <GraphView 
-              onNodeClick={handleNodeClick}
-              selectedNode={selectedNode}
-              closeDrawer={closeDrawer}
-              userName={userName!}
-              isGuest={isGuest}
-              appData={appData}
-              setAppData={updateAppData}
-              showToast={showToast}
-              onOpenIframe={setIframeUrl}
-              targetPostId={targetPostId}
-              onOpenArticle={(title, content) => setArticleModal({title, content})}
-              nodesData={nodesData}
-              linksData={linksData}
-              goBack={goBackNode}
-              canGoBack={nodeHistory.length > 0}
-              initialLobbyTab={openLobbyChat ? 'chat' : undefined}
-            />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'quiz' && (
-          <ErrorBoundary moduleName="性向測驗">
-            <QuizView showToast={showToast} userName={userName} onCancel={() => setActiveTab('graph')} quizConfig={quizConfig} />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'articles' && (
-          <ErrorBoundary moduleName="專題誌">
-            <ArticleFeature
-              nodesData={nodesData.length > 0 ? nodesData : defaultGraphNodes}
-              isMember={!isGuest && Boolean(userId)}
-              onBackToNode={(nodeId) => {
-                setActiveTab('graph');
-                const node = (nodesData.length > 0 ? nodesData : defaultGraphNodes).find((item) => item.id === nodeId);
-                if (node) handleNodeClick(node);
-              }}
-            />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'forum' && (
-          <ErrorBoundary moduleName="討論版">
-            <ForumFeature
-              nodesData={nodesData.length > 0 ? nodesData : defaultGraphNodes}
-              discussions={appData.discussions}
-              isMember={!isGuest && Boolean(userId)}
-              currentUserId={userId}
-            />
-          </ErrorBoundary>
-        )}
+        <ClientAppModules
+          activeTab={activeTab}
+          quizConfig={quizConfig}
+          nodesData={nodesData}
+          linksData={linksData}
+          defaultGraphNodes={defaultGraphNodes}
+          selectedNode={selectedNode}
+          handleNodeClick={handleNodeClick}
+          closeDrawer={closeDrawer}
+          userName={userName!}
+          isGuest={isGuest}
+          appData={appData}
+          setAppData={updateAppData}
+          showToast={showToast}
+          onOpenIframe={setIframeUrl}
+          targetPostId={targetPostId}
+          onOpenArticle={(title, content) => setArticleModal({ title, content })}
+          goBack={goBackNode}
+          canGoBack={nodeHistory.length > 0}
+          initialLobbyTab={openLobbyChat ? 'chat' : undefined}
+          userId={userId}
+          onBackToNode={(nodeId) => {
+            setActiveTab('graph');
+            const node = (nodesData.length > 0 ? nodesData : defaultGraphNodes).find((item) => item.id === nodeId);
+            if (node) handleNodeClick(node);
+          }}
+          onCancelToGraph={() => setActiveTab('graph')}
+        />
       </div>
 
       {/* Iframe Modal for Detailed Links */}
@@ -570,9 +545,6 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       {/* About & Feedback Modal */}
       <AboutModal isOpen={showAboutModal} onClose={() => setShowAboutModal(false)} />
 
-      {/* Agreement Modal */}
-      <AgreementModal onAgree={() => {}} />
-
       {/* Auth Modal */}
       {showAuthModal && <AuthModal onClose={() => { setShowAuthModal(false); setAuthMode('login'); }} onLoginSuccess={() => setShowAuthModal(false)} defaultMode={authMode} />}
 
@@ -588,14 +560,6 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           userName={userName!}
           userId={userId}
           onClose={() => setShowStyleConfigModal(false)}
-        />
-      )}
-
-      {/* About & Feedback Modal */}
-      {showAboutModal && (
-        <AboutModal
-          isOpen={showAboutModal}
-          onClose={() => setShowAboutModal(false)}
         />
       )}
 

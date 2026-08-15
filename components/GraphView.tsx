@@ -706,12 +706,12 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
 
       <svg ref={svgRef} className="absolute inset-0 z-10 w-full h-full cursor-grab active:cursor-grabbing pointer-events-auto"></svg>
       <div 
-        className={`absolute bottom-0 md:top-0 right-0 ${isDrawerFullScreen ? 'h-[95vh]' : 'h-[55vh]'} md:h-full w-full md:w-[500px] bg-white/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-2xl rounded-t-[2rem] md:rounded-none md:border-l border-[#D1C6B4]/20 transform transition-all duration-300 ease-out flex flex-col z-20 ${selectedNode ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:translate-y-0 md:translate-x-full'}`}
+        className={`absolute bottom-0 md:top-0 right-0 ${isDrawerFullScreen ? 'h-[95dvh] max-h-[100dvh]' : 'h-[55dvh] max-h-[100dvh]'} md:h-full w-full md:w-[500px] bg-white/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] md:shadow-2xl rounded-t-[2rem] md:rounded-none md:border-l border-[#D1C6B4]/20 transform transition-all duration-300 ease-out flex flex-col z-20 ${selectedNode ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:translate-y-0 md:translate-x-full'}`}
       >
         {/* Mobile Drag Handle */}
         {selectedNode && (
           <div 
-            className="md:hidden w-full h-10 flex flex-col items-center justify-center shrink-0 cursor-ns-resize hover:bg-[#D1C6B4]/10 transition-colors rounded-t-3xl"
+            className="md:hidden w-full h-10 flex flex-col items-center justify-center shrink-0 cursor-ns-resize touch-none hover:bg-[#D1C6B4]/10 transition-colors rounded-t-3xl"
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}

@@ -184,7 +184,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     .map(p => ({ ...p, isHot: true }));
 
   return (
-    <div className="drawer-panel drawer-container flex min-h-0 max-h-[100dvh] flex-col relative text-inherit overflow-hidden overscroll-none scrollbar-thin scrollbar-thumb-[#D1C6B4] scrollbar-track-transparent">
+    <div className="drawer-panel drawer-container flex h-full min-h-0 max-h-[100dvh] flex-col relative text-inherit overflow-hidden overscroll-none scrollbar-thin scrollbar-thumb-[#D1C6B4] scrollbar-track-transparent">
       <div className="shrink-0 border-b border-[#D1C6B4]/20 bg-white/80 p-4 pb-3 relative sm:p-6 sm:pb-4">
         <button onClick={closeDrawer} className="absolute top-5 right-5 p-3 bg-[#E8C5C8]/90 text-white rounded-full hover:bg-[#D9B650] shadow-md transition-transform hover:scale-110 active:scale-95 font-bold z-50 text-lg flex items-center justify-center w-10 h-10">✕</button>
         
