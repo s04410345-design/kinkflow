@@ -1,24 +1,13 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { SafeStorage } from '@/lib/constants';
-import { AuthorName, BlueBirdBadge } from '../Comment';
+import { AuthorName } from '../Comment';
+import { fetchAdminMembersData, type MemberPost, type MemberProfile, type MemberQuizResult } from '@/lib/data/adminMembers';
 
 const TRAIT_LABELS: Record<string, string> = {
   dom: 'Dom 支配', sub: 'Sub 服從', rigger: 'Rigger 束縛者',
   tied: 'Tied 被縛', sadist: 'Sadist 施痛', maso: 'Maso 承受',
 };
-
-interface MemberProfile {
-  id: string;
-  userName: string;
-  avatar_url?: string;
-  cover_url?: string;
-  bio?: string;
-  joinedAt: string;
-  isRegistered: boolean;
-}
 
 export default function MemberManagementPanel() {
   const [loading, setLoading] = useState(true);
@@ -29,8 +18,8 @@ export default function MemberManagementPanel() {
   const [activeSubTab, setActiveSubTab] = useState<'bio' | 'quiz' | 'activity'>('bio');
 
   // 會員關聯資料快取
-  const [memberQuizMap, setMemberQuizMap] = useState<Record<string, any[]>>({});
-  const [memberPostsMap, setMemberPostsMap] = useState<Record<string, any[]>>({});
+  const [memberQuizMap, setMemberQuizMap] = useState<Record<string, MemberQuizResult[]>>({});
+  const [memberPostsMap, setMemberPostsMap] = useState<Record<string, MemberPost[]>>({});
 
   useEffect(() => {
     fetchMembersData();
@@ -39,82 +28,12 @@ export default function MemberManagementPanel() {
   const fetchMembersData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Users
-      const { data: usersData } = await supabase.from('profiles').select('*');
-      
-      // 2. Fetch Discussions for user post activity
-      const { data: discData } = await supabase.from('discussions').select('*');
-      
-      const postsGrouped: Record<string, any[]> = {};
-      (discData || []).forEach(post => {
-        const authorKey = post.author || '匿名訪客';
-        if (!postsGrouped[authorKey]) postsGrouped[authorKey] = [];
-        postsGrouped[authorKey].push(post);
-      });
-      setMemberPostsMap(postsGrouped);
-
-      const quizData: any[] = [];
-      const quizGrouped: Record<string, any[]> = {};
-      (quizData || []).forEach(res => {
-        const uKey = res.user_name || res.user_id || '訪客';
-        if (!quizGrouped[uKey]) quizGrouped[uKey] = [];
-        quizGrouped[uKey].push(res);
-      });
-      setMemberQuizMap(quizGrouped);
-
-      // 4. Fetch quiz_content for User Covers and Avatars
-      const { data: userContents } = await supabase.from('quiz_content').select('*').like('key_name', 'user_%');
-      const userContentMap: Record<string, any> = {};
-      (userContents || []).forEach(uc => {
-        const cleanK = uc.key_name.replace('user_', '').trim();
-        userContentMap[cleanK] = uc.content;
-      });
-
-      // 建立以乾淨名稱為 Key 的唯一 Member 清單，100% 消除重複
-      const seenNames = new Set<string>();
-      const memberList: MemberProfile[] = [];
-
-      (usersData || []).forEach(u => {
-        const rawName = u.username || u.user_name || u.name || u.email?.split('@')[0] || `會員_${(u.id || '').slice(0, 6)}`;
-        const cleanName = rawName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-        if (seenNames.has(cleanName)) return;
-        seenNames.add(cleanName);
-
-        const uc = userContentMap[cleanName] || {};
-
-        memberList.push({
-          id: u.id,
-          userName: cleanName + ' ☑️',
-          avatar_url: u.avatar_url || uc.avatarUrl,
-          cover_url: u.cover_url || uc.coverUrl,
-          bio: u.bio || u.intro || uc.bio,
-          joinedAt: u.created_at || u.joined_at || new Date().toISOString(),
-          isRegistered: true
-        });
-      });
-
-      // 加入僅有留言紀錄但不在 profiles 的純訪客
-      Object.keys(postsGrouped).forEach(authorName => {
-        const cleanAuthor = authorName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-        if (seenNames.has(cleanAuthor)) return;
-        seenNames.add(cleanAuthor);
-
-        const uc = userContentMap[cleanAuthor] || {};
-
-        memberList.push({
-          id: `guest_${authorName}`,
-          userName: authorName.includes('👻') ? authorName : authorName + ' 👻',
-          avatar_url: uc.avatarUrl,
-          cover_url: uc.coverUrl,
-          bio: uc.bio,
-          joinedAt: postsGrouped[authorName][0]?.created_at || new Date().toISOString(),
-          isRegistered: false
-        });
-      });
-
-      setMembers(memberList);
-    } catch (e) {
-      console.error("Fetch members failed:", e);
+      const data = await fetchAdminMembersData();
+      setMembers(data.members);
+      setMemberPostsMap(data.memberPostsMap);
+      setMemberQuizMap(data.memberQuizMap);
+    } catch (error) {
+      console.error('Fetch members failed:', error);
     } finally {
       setLoading(false);
     }
@@ -260,7 +179,7 @@ export default function MemberManagementPanel() {
                             <div key={q.id || idx} className="bg-white p-4 rounded-xl border border-[#D1C6B4]/20">
                               <div className="flex justify-between items-center text-xs text-[#4A4238]/50 mb-2">
                                 <span className="font-bold text-[#D9B650]">測驗紀錄 #{idx + 1}</span>
-                                <span>{new Date(q.created_at || q.timestamp).toLocaleString('zh-TW')}</span>
+                                <span>{new Date(q.created_at || q.timestamp || 0).toLocaleString('zh-TW')}</span>
                               </div>
                               {q.top_traits && (
                                 <div className="flex flex-wrap gap-1.5">
@@ -287,7 +206,7 @@ export default function MemberManagementPanel() {
                             <div key={p.id || idx} className="bg-white p-4 rounded-xl border border-[#D1C6B4]/20">
                               <div className="flex justify-between items-center text-xs text-[#4A4238]/50 mb-1">
                                 <span className="font-bold text-[#4A4238]">位置: {p.node_id}</span>
-                                <span>{new Date(p.timestamp || p.created_at).toLocaleString('zh-TW')}</span>
+                                <span>{new Date(p.timestamp || p.created_at || 0).toLocaleString('zh-TW')}</span>
                               </div>
                               <p className="text-sm font-medium text-[#4A4238]">{p.text}</p>
                               <div className="text-[10px] text-[#4A4238]/40 mt-2">👍 獲得按讚: {p.upvotes || 0} 次</div>

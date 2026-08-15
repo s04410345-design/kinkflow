@@ -1,42 +1,29 @@
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '@/lib/supabase';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { AXES_INFO, TRAITS_DB } from '@/lib/quizData';
-
-// 軸心中文與色彩映射
-const AXES_COLOR_MAP: Record<string, { name: string; color: string }> = {
-  'dom_sub': { name: '支配 / 服從 (Dom & Sub)', color: '#D9B650' },
-  'rigger_tied': { name: '繩縛 / 被縛 (Rigger & Tied)', color: '#C5D4B6' },
-  'sadist_maso': { name: '施痛 / 承受 (Sadist & Maso)', color: '#E08A8A' },
-  'roleplay': { name: '角色 / 身份演繹', color: '#B6C4D4' },
-  'mind_control': { name: '心智 / 控制與催眠', color: '#9B8265' },
-  'sensory': { name: '感官 / 剝奪與剝離', color: '#7F1D1D' },
-  'pet': { name: '寵物 / 馴養關係', color: '#E8C5C8' },
-  'humiliation': { name: '羞辱 / 精神標記', color: '#0F766E' },
-  'fetish': { name: '戀物 / 道具癖好', color: '#1E3A8A' },
-  'aftercare': { name: '撫慰 / 餘溫關懷', color: '#4A4238' }
-};
-
-// 五大核心屬性配色
-const FIVE_CATS = [
-  { key: 'Dom', name: 'Dom 支配系', color: '#D9B650', keys: ['dom', 'rigger', 'sadist', 'master', 'top'] },
-  { key: 'Sub', name: 'Sub 服從系', color: '#E8C5C8', keys: ['sub', 'tied', 'maso', 'slave', 'bottom', 'prey'] },
-  { key: 'Sadist', name: 'Sadist 施痛系', color: '#E08A8A', keys: ['sadist', 'tormentor'] },
-  { key: 'Maso', name: 'Maso 承受系', color: '#C5D4B6', keys: ['maso', 'prey'] },
-  { key: 'Switch', name: 'Switch 雙向與多元', color: '#B6C4D4', keys: ['switch', 'versatile', 'curious'] }
-];
+import {
+  buildActivityStats,
+  buildQuizChartData,
+  buildTreeVoteData,
+  fetchAdminAnalyticsData,
+  type ActivityTimeframe,
+  type AnalyticsDiscussion,
+  type AnalyticsFeedback,
+  type AnalyticsLog,
+  type AnalyticsQuizResult,
+  type VoteBreakdown,
+} from '@/lib/data/adminAnalytics';
 
 export default function AnalyticsDashboardPanel() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [quizResults, setQuizResults] = useState<any[]>([]);
-  const [feedbackList, setFeedbackList] = useState<any[]>([]);
-  const [discussions, setDiscussions] = useState<any[]>([]);
-  const [nodeStatsContent, setNodeStatsContent] = useState<Record<string, any>>({});
-  const [mindmapNodes, setMindmapNodes] = useState<any[]>([]);
-  const [logs, setLogs] = useState<any[]>([]);
+  const [quizResults, setQuizResults] = useState<AnalyticsQuizResult[]>([]);
+  const [feedbackList, setFeedbackList] = useState<AnalyticsFeedback[]>([]);
+  const [discussions, setDiscussions] = useState<AnalyticsDiscussion[]>([]);
+  const [nodeStatsContent, setNodeStatsContent] = useState<Record<string, VoteBreakdown>>({});
+  const [mindmapNodes, setMindmapNodes] = useState<import('@/lib/types').GraphNode[]>([]);
+  const [logs, setLogs] = useState<AnalyticsLog[]>([]);
 
   // 區塊收合狀態
   const [openSectionQuiz, setOpenSectionQuiz] = useState(true);
@@ -45,316 +32,47 @@ export default function AnalyticsDashboardPanel() {
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Record<string, boolean>>({});
 
   // 網站活動時段選單狀態 (今日 / 本周 / 歷史總計)
-  const [activityTimeframe, setActivityTimeframe] = useState<'today' | 'week' | 'all'>('today');
+  const [activityTimeframe, setActivityTimeframe] = useState<ActivityTimeframe>('today');
 
   // 圖表分頁模式 (4種切換)
   const [chartTab, setChartTab] = useState<'five_cats' | 'top_10' | 'bottom_10' | 'axes_10'>('five_cats');
 
   useEffect(() => {
-    fetchAnalyticsData();
+    void fetchAnalyticsData();
   }, []);
 
   const fetchAnalyticsData = async () => {
     setRefreshing(true);
     try {
-      const { data: logData } = await supabase.from('visitor_logs').select('*').order('created_at', { ascending: false });
-      if (logData) setLogs(logData);
-
-      const finalQuizResults = (logData || [])
-        .filter((l: any) => l.action_type === 'quiz_ai_analysis' || l.action_type === 'quiz_result')
-        .map((l: any) => ({
-          id: l.id,
-          user_name: l.details?.userName || '訪客',
-          scores: l.details?.scores || {},
-          top_traits: [l.details?.top_trait || 'dom'],
-          created_at: l.created_at
-        }));
-      setQuizResults(finalQuizResults);
-
-      const { data: contentData } = await supabase.from('quiz_content').select('*');
-      const nStatsObj: Record<string, any> = {};
-
-      (contentData || []).forEach((item: any) => {
-        if (item.key_name === 'quiz_node_stats' || item.key_name === 'node_stats') {
-          Object.assign(nStatsObj, item.content || {});
-        }
-        if (item.key_name === 'mindmap_data' && Array.isArray(item.content)) {
-          setMindmapNodes(item.content);
-        }
-      });
-      setNodeStatsContent(nStatsObj);
-
-      const { data: discData } = await supabase.from('discussions').select('*').order('timestamp', { ascending: false });
-      if (discData) setDiscussions(discData);
-
-      const logFeedbacks = (logData || [])
-        .filter((l: any) => (l.action_type === 'author_message' || l.action_type === 'feedback') && (l.details?.message || l.details?.content))
-        .map((l: any) => ({
-          id: l.id,
-          author: l.details?.userName || l.details?.author || '匿名訪客',
-          content: l.details.message || l.details.content,
-          created_at: l.created_at
-        }));
-
-      const discFeedbacks = (discData || [])
-        .filter((d: any) => d.node_id === 'author_feedback' || d.node_id === 'author_message' || d.text?.startsWith('【給作者的話】'))
-        .map((d: any) => ({
-          id: d.id,
-          author: d.author || '匿名訪客',
-          content: d.text.replace('【給作者的話】', ''),
-          created_at: new Date(d.timestamp).toISOString()
-        }));
-
-      const fbData: any[] = [];
-      const combinedFeedbacks = [...fbData, ...logFeedbacks, ...discFeedbacks].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-
-      const uniqueFeedbacks: any[] = [];
-      const seenContent = new Set<string>();
-      
-      // 建立時間戳記到特質/訪客名稱的快捷對照字典
-      const timeToUserMap: Record<number, string> = {};
-      (logData || []).forEach((l: any) => {
-        const uName = l.details?.userName || l.details?.author || l.user_name;
-        if (uName && uName !== '匿名訪客') {
-          const t = new Date(l.created_at).getTime();
-          timeToUserMap[t] = uName;
-        }
-      });
-
-      combinedFeedbacks.forEach(item => {
-        const textKey = (item.content || '').trim();
-        if (textKey && !seenContent.has(textKey)) {
-          seenContent.add(textKey);
-
-          // 智慧解析真實姓名：過慮掉 '匿名訪客'、'匿名'、'null'、'undefined'
-          let resolvedName = [item.author, item.user_name, item.userName, item.details?.userName]
-            .find(n => n && n !== '匿名訪客' && n !== '匿名' && n !== 'null' && n !== 'undefined');
-
-          // 若為匿名，嘗試依據時間前後 5 分鐘進行歷史 log 匹配
-          if (!resolvedName) {
-            const itemTime = new Date(item.created_at).getTime();
-            const matchedTime = Object.keys(timeToUserMap).find(t => Math.abs(Number(t) - itemTime) < 5 * 60 * 1000);
-            if (matchedTime) {
-              resolvedName = timeToUserMap[Number(matchedTime)];
-            }
-          }
-
-          uniqueFeedbacks.push({
-            ...item,
-            authorName: resolvedName || '匿名訪客'
-          });
-        }
-      });
-
-      setFeedbackList(uniqueFeedbacks);
-    } catch (e) {
-      console.error("Fetch analytics failed:", e);
+      const data = await fetchAdminAnalyticsData();
+      setLogs(data.logs);
+      setQuizResults(data.quizResults);
+      setFeedbackList(data.feedbackList);
+      setDiscussions(data.discussions);
+      setNodeStatsContent(data.nodeStatsContent);
+      setMindmapNodes(data.mindmapNodes);
+    } catch (error) {
+      console.error('Fetch analytics failed:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // ===== 1. 測驗數據：4 種圖表數據計算 =====
-  const { fiveCategoriesData, top10Popular, bottom10Unpopular, tenAxesData } = useMemo(() => {
-    const traitScores: Record<string, number> = {};
-    const axisScores: Record<string, number> = {};
-    let totalSum = 0;
+  const { fiveCategoriesData, top10Popular, bottom10Unpopular, tenAxesData } = useMemo(
+    () => buildQuizChartData(quizResults),
+    [quizResults]
+  );
 
-    quizResults.forEach(r => {
-      if (r.scores && typeof r.scores === 'object') {
-        Object.entries(r.scores).forEach(([tId, score]) => {
-          const val = Number(score) || 0;
-          if (val > 0) {
-            traitScores[tId] = (traitScores[tId] || 0) + val;
-            totalSum += val;
+  const treeVoteData = useMemo(
+    () => buildTreeVoteData({ nodeStatsContent, logs, mindmapNodes }),
+    [nodeStatsContent, logs, mindmapNodes]
+  );
 
-            const traitMeta = TRAITS_DB[tId] || {};
-            const axisId = traitMeta.axis || tId.split('_')[0] || 'other';
-            axisScores[axisId] = (axisScores[axisId] || 0) + val;
-          }
-        });
-      }
-    });
-
-    const fiveCatValues: Record<string, number> = { Dom: 0, Sub: 0, Sadist: 0, Maso: 0, Switch: 0 };
-    Object.entries(traitScores).forEach(([tId, sum]) => {
-      let matched = false;
-      FIVE_CATS.forEach(c => {
-        if (c.keys.some(k => tId.toLowerCase().includes(k))) {
-          fiveCatValues[c.key] += sum;
-          matched = true;
-        }
-      });
-      if (!matched) fiveCatValues['Switch'] += sum;
-    });
-
-    const fiveCatChart = FIVE_CATS.map(c => ({
-      name: c.name,
-      value: fiveCatValues[c.key],
-      percentage: totalSum > 0 ? Number(((fiveCatValues[c.key] / totalSum) * 100).toFixed(1)) : 0,
-      color: c.color
-    }));
-
-    const traitList = Object.entries(traitScores).map(([id, sum]) => {
-      const meta = TRAITS_DB[id] || {};
-      const axisMeta = AXES_COLOR_MAP[meta.axis || ''] || { name: id, color: '#D9B650' };
-      return {
-        id,
-        name: meta.name || id,
-        scoreSum: sum,
-        percentage: totalSum > 0 ? Number(((sum / totalSum) * 100).toFixed(1)) : 0,
-        color: axisMeta.color,
-        icon: meta.icon || '✨'
-      };
-    }).sort((a, b) => b.scoreSum - a.scoreSum);
-
-    const top10 = traitList.slice(0, 10);
-    const bottom10 = [...traitList].reverse().slice(0, 10);
-
-    const axesChart = (AXES_INFO || []).map(a => {
-      const val = axisScores[a.id] || 0;
-      const meta = AXES_COLOR_MAP[a.id] || { name: a.name, color: a.color || '#D9B650' };
-      return {
-        id: a.id,
-        name: a.name,
-        scoreSum: val,
-        percentage: totalSum > 0 ? Number(((val / totalSum) * 100).toFixed(1)) : 0,
-        color: meta.color
-      };
-    }).sort((a, b) => b.scoreSum - a.scoreSum);
-
-    return {
-      fiveCategoriesData: fiveCatChart,
-      top10Popular: top10,
-      bottom10Unpopular: bottom10,
-      tenAxesData: axesChart
-    };
-  }, [quizResults]);
-
-  // ===== 2. 投票統計：樹狀結構 + DFS 排序 =====
-  const treeVoteData = useMemo(() => {
-    const rawMap: Record<string, { need: number; like: number; curious: number; neutral: number; nope: number }> = {};
-    
-    Object.entries(nodeStatsContent).forEach(([nId, s]: [string, any]) => {
-      rawMap[nId] = {
-        need: Number(s?.need) || 0,
-        like: Number(s?.like) || 0,
-        curious: Number(s?.curious) || 0,
-        neutral: Number(s?.neutral) || 0,
-        nope: Number(s?.nope) || 0
-      };
-    });
-
-    const seenLog = new Set<string>();
-    logs.forEach(l => {
-      if ((l.action_type === 'vote' || l.action_type === 'node_vote') && l.details?.node_id) {
-        const uKey = `${l.device_id || l.details?.userName || 'guest'}_${l.details.node_id}`;
-        if (seenLog.has(uKey)) return;
-        seenLog.add(uKey);
-
-        const nId = l.details.node_id;
-        const vType = l.details.vote_type || 'like';
-        if (!rawMap[nId]) rawMap[nId] = { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
-        if (vType === 'need') rawMap[nId].need += 1;
-        else if (vType === 'like') rawMap[nId].like += 1;
-        else if (vType === 'curious') rawMap[nId].curious += 1;
-        else if (vType === 'nope') rawMap[nId].nope += 1;
-        else rawMap[nId].neutral += 1;
-      }
-    });
-
-    const nodesList = mindmapNodes.length > 0 ? mindmapNodes : [
-      { id: 'bdsm', label: 'BDSM 大廳', parent: null, level: 0 },
-      { id: 'bondage', label: '繩縛與束縛', parent: 'bdsm', level: 1 },
-      { id: 'spanking', label: '打屁股與體罰', parent: 'bdsm', level: 1 },
-      { id: 'domination', label: '支配與服從', parent: 'bdsm', level: 1 }
-    ];
-
-    const dfsResult: any[] = [];
-    const childrenMap: Record<string, any[]> = {};
-    const rootNodes: any[] = [];
-
-    nodesList.forEach(n => {
-      if (!n.parent) {
-        rootNodes.push(n);
-      } else {
-        if (!childrenMap[n.parent]) childrenMap[n.parent] = [];
-        childrenMap[n.parent].push(n);
-      }
-    });
-
-    const traverse = (node: any, currentLevel: number) => {
-      const s = rawMap[node.id] || { need: 0, like: 0, curious: 0, neutral: 0, nope: 0 };
-      const likeCount = s.need + s.like;
-      const neutralCount = s.curious + s.neutral;
-      const nopeCount = s.nope;
-      const total = likeCount + neutralCount + nopeCount;
-
-      dfsResult.push({
-        id: node.id,
-        label: node.label || node.id,
-        parent: node.parent,
-        level: currentLevel,
-        likeCount,
-        neutralCount,
-        nopeCount,
-        total,
-        likePct: total > 0 ? Math.round((likeCount / total) * 100) : 0,
-        neutralPct: total > 0 ? Math.round((neutralCount / total) * 100) : 0,
-        nopePct: total > 0 ? Math.round((nopeCount / total) * 100) : 0
-      });
-
-      const children = childrenMap[node.id] || [];
-      children.forEach(child => traverse(child, currentLevel + 1));
-    };
-
-    rootNodes.forEach(r => traverse(r, 0));
-
-    const visitedIds = new Set(dfsResult.map(d => d.id));
-    nodesList.forEach(n => {
-      if (!visitedIds.has(n.id)) {
-        traverse(n, 1);
-      }
-    });
-
-    return dfsResult;
-  }, [nodeStatsContent, logs, mindmapNodes]);
-
-  // ===== 3. 計算「今日 / 本周 / 歷史總計」活動數據 =====
-  const filteredActivityStats = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const dayOfWeek = now.getDay();
-    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek).getTime();
-
-    const isTargetTime = (dateStrOrMs: any) => {
-      if (!dateStrOrMs) return false;
-      const t = typeof dateStrOrMs === 'number' ? dateStrOrMs : new Date(dateStrOrMs).getTime();
-      if (activityTimeframe === 'today') return t >= startOfToday;
-      if (activityTimeframe === 'week') return t >= startOfWeek;
-      return true;
-    };
-
-    const visitorSet = new Set<string>();
-    logs.filter(l => isTargetTime(l.created_at)).forEach(l => {
-      const uId = l.details?.userName || l.device_id || l.user_id;
-      if (uId) visitorSet.add(uId);
-    });
-
-    const commentCount = discussions.filter(d => isTargetTime(d.timestamp)).length;
-    const voteCount = logs.filter(l => isTargetTime(l.created_at) && (l.action_type === 'vote' || l.action_type === 'node_vote')).length;
-    const quizCount = quizResults.filter(q => isTargetTime(q.created_at)).length;
-
-    return {
-      visitors: visitorSet.size || (activityTimeframe === 'all' ? 1 : 0),
-      comments: commentCount,
-      votes: voteCount,
-      quizzes: quizCount
-    };
-  }, [logs, discussions, quizResults, activityTimeframe]);
+  const filteredActivityStats = useMemo(
+    () => buildActivityStats({ logs, discussions, quizResults, timeframe: activityTimeframe }),
+    [logs, discussions, quizResults, activityTimeframe]
+  );
 
   // ===== 匯出工具函式 =====
   const downloadTextFile = (filename: string, text: string) => {
