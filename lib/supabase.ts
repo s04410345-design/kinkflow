@@ -7,6 +7,27 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 const runtimeUrl = supabaseUrl || 'http://127.0.0.1:54321';
 const runtimeKey = supabaseKey || 'build-placeholder-anon-key';
+const SUPABASE_REQUEST_TIMEOUT_MS = 12_000;
+
+const fetchWithTimeout: typeof fetch = async (input, init = {}) => {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS);
+
+  const existingSignal = init.signal;
+  const abortFromCaller = () => controller.abort();
+  existingSignal?.addEventListener('abort', abortFromCaller, { once: true });
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+    existingSignal?.removeEventListener('abort', abortFromCaller);
+  }
+};
 
 export const supabase = createClient(runtimeUrl, runtimeKey, {
   auth: {
@@ -15,11 +36,6 @@ export const supabase = createClient(runtimeUrl, runtimeKey, {
     detectSessionInUrl: true,
   },
   global: {
-    fetch: (...args) => {
-      return fetch(args[0], {
-        ...args[1],
-        cache: 'no-store',
-      });
-    },
+    fetch: fetchWithTimeout,
   },
 });
