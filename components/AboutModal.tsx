@@ -8,6 +8,7 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
   const { userName, userId, isGuest } = useAuth();
   const [authorNameInput, setAuthorNameInput] = useState('');
 
@@ -15,40 +16,62 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
     if (userName) setAuthorNameInput(userName);
   }, [userName]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setMessage('');
+      setError('');
+      setSent(false);
+      setIsSending(false);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleSend = async () => {
-    if (!message.trim()) return;
+    const content = message.trim();
+    if (!content || isSending || sent) return;
+
+    setError('');
     setIsSending(true);
     try {
       const activeAuthor = authorNameInput.trim() || userName || '匿名訪客';
-
-      await fetch('/api/feedback', {
+      const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: message.trim(),
+          content,
           author: activeAuthor,
           userId,
           isGuest
         })
       });
+      const payload: unknown = await response.json().catch(() => null);
+      const apiMessage = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : '回饋送出失敗，請稍後再試。';
 
-      await logToSupabase('author_message', {
-        message: message.trim(),
+      if (!response.ok) {
+        throw new Error(apiMessage);
+      }
+
+      void logToSupabase('author_message', {
+        message: content,
         userName: activeAuthor,
         userId,
         isGuest
+      }).catch((logError: unknown) => {
+        console.error('回饋紀錄寫入失敗', logError);
       });
-    } catch (e) {
-      console.error("Feedback submission error:", e);
-    }
-    setIsSending(false);
-    setSent(true);
-    setTimeout(() => {
-      setSent(false);
+
+      setSent(true);
       setMessage('');
-    }, 3000);
+      window.setTimeout(() => setSent(false), 3000);
+    } catch (sendError: unknown) {
+      console.error('回饋送出失敗', sendError);
+      setError(sendError instanceof Error ? sendError.message : '回饋送出失敗，請稍後再試。');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -122,6 +145,7 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
                   value={authorNameInput}
                   onChange={e => setAuthorNameInput(e.target.value)}
                   placeholder="輸入您的暱稱..."
+                  aria-label="您的稱呼或暱稱"
                   className="w-full text-xs font-bold text-[#1A1612] bg-transparent outline-none"
                   style={{ color: '#1A1612' }}
                 />
@@ -131,14 +155,16 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 placeholder="寫下你想對作者說的話..."
+                aria-label="給作者的回饋內容"
                 className="w-full h-24 p-3 rounded-lg border border-[#D1C6B4]/50 focus:outline-none focus:border-[#E08A8A] focus:ring-1 focus:ring-[#E08A8A] resize-none text-[#1A1612] font-bold bg-white transition-all text-sm"
                 style={{ color: '#1A1612' }}
                 disabled={isSending || sent}
               />
-              <div className="flex justify-between items-center mt-1">
-                <span className={`text-xs font-bold ${sent ? 'text-green-600' : 'text-transparent'}`}>
-                  ✓ 留言已成功送出，謝謝您的回饋！
-                </span>
+              <div className="flex justify-between items-center mt-1 gap-3">
+                <div className="min-h-5 text-xs font-bold" role="status" aria-live="polite">
+                  {sent && <span className="text-green-600">✓ 留言已成功送出，謝謝您的回饋！</span>}
+                  {error && <span className="text-red-600">{error}</span>}
+                </div>
                 <button 
                   onClick={handleSend}
                   disabled={!message.trim() || isSending || sent}

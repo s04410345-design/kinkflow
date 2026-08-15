@@ -35,6 +35,24 @@ import { QuizConfigContext } from '@/components/QuizContext';
 import StyleConfigModal from '@/components/StyleConfigModal';
 import { parseDiscussionDate } from '@/lib/contentModel';
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+const GUEST_NAME_PATTERN = /^[\p{L}\p{N} _.-]+$/u;
+const GUEST_NAME_MIN_LENGTH = 2;
+const GUEST_NAME_MAX_LENGTH = 32;
+
+function getGuestNameError(value: string): string | null {
+  const normalized = value.trim();
+  if (!normalized) return '請先輸入專屬 ID。';
+  if (normalized.length < GUEST_NAME_MIN_LENGTH) return `專屬 ID 至少需要 ${GUEST_NAME_MIN_LENGTH} 個字元。`;
+  if (normalized.length > GUEST_NAME_MAX_LENGTH) return `專屬 ID 不可超過 ${GUEST_NAME_MAX_LENGTH} 個字元。`;
+  if (!GUEST_NAME_PATTERN.test(normalized)) return '專屬 ID 只能包含中英文、數字、空白、底線、連字號或句點。';
+  return null;
+}
+
 // ================= 主要元件 =================
 export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const { userName, setUserName, userId, setUserId, isGuest, setIsGuest, authMode, setAuthMode, showAuthModal, setShowAuthModal } = useAuth();
@@ -50,19 +68,21 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginInput, setLoginInput] = useState('');
+  const [loginError, setLoginError] = useState('');
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [articleModal, setArticleModal] = useState<{title: string, content: string} | null>(null);
   const [hasAgreed18, setHasAgreed18] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showStyleConfigModal, setShowStyleConfigModal] = useState(false);
   const [showPwaModal, setShowPwaModal] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [pwaMessage, setPwaMessage] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [openLobbyChat, setOpenLobbyChat] = useState(false);
 
   useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
 
@@ -75,6 +95,13 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('open_quiz_modal', handleOpenQuiz);
     };
+  }, []);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    void navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
+      console.warn('PWA 服務工作者註冊失敗', error);
+    });
   }, []);
   
   // 0=hidden, 1=small, 2=large
@@ -245,7 +272,15 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
 
   // ===== 訪客登入 =====
   const handleLogin = async (name: string) => {
-    const finalName = formatGuestName(name);
+    const normalizedName = name.trim();
+    const validationError = getGuestNameError(normalizedName);
+    if (validationError) {
+      setLoginError(validationError);
+      return;
+    }
+
+    setLoginError('');
+    const finalName = formatGuestName(normalizedName);
     setUserName(finalName);
     saveGuestName(finalName);
     setIsGuest(true);
@@ -258,28 +293,28 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       }
 
       try {
-        const { data: userConfigArr } = await supabase.from('quiz_content').select('content').eq('key_name', `user_${name}`);
+        const { data: userConfigArr } = await supabase.from('quiz_content').select('content').eq('key_name', `user_${normalizedName}`);
         const data = userConfigArr?.[0];
         if (data && data.content && typeof data.content === 'object') {
           if ((data.content as Record<string, string>).device_id !== deviceId) {
-            showToast("⚠️ 這個暱稱已被其他人使用，請換一個！");
+            showToast('⚠️ 這個暱稱已被其他人使用，請換一個！');
           }
         } else if (!data) {
-          await supabase.from('quiz_content').insert({ 
-            key_name: `user_${name}`, 
-            content: { device_id: deviceId, joinedAt: Date.now() } 
+          await supabase.from('quiz_content').insert({
+            key_name: `user_${normalizedName}`,
+            content: { device_id: deviceId, joinedAt: Date.now() }
           });
           await supabase.from('visitor_logs').insert({
             action_type: 'user_register',
             device_id: deviceId,
             details: {
-              userName: name,
+              userName: normalizedName,
               created_at: new Date().toISOString()
             }
           });
         }
-      } catch (e) {
-        console.error("登入檢查錯誤", e);
+      } catch (error: unknown) {
+        console.error('登入檢查錯誤', error);
       }
     })();
   };
@@ -289,6 +324,28 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     setUserName(null);
     setUserId(null);
     removeGuestName();
+  };
+
+  const handleInstallApp = () => {
+    if (!deferredPrompt) {
+      setPwaMessage('目前瀏覽器沒有提供一鍵安裝，請依下方的手機瀏覽器步驟操作。');
+      setShowPwaModal(true);
+      return;
+    }
+
+    void (async () => {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        setDeferredPrompt(null);
+        setPwaMessage(choice.outcome === 'accepted' ? '已啟動安裝，請依瀏覽器畫面完成確認。' : '你已取消安裝；仍可依下方步驟手動加入主畫面。');
+        setShowPwaModal(true);
+      } catch (error: unknown) {
+        console.warn('PWA 安裝提示啟動失敗', error);
+        setPwaMessage('目前無法啟動一鍵安裝，請依下方步驟手動加入主畫面。');
+        setShowPwaModal(true);
+      }
+    })();
   };
 
   // ===== 載入畫面 =====
@@ -312,14 +369,25 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           <h1 className="text-3xl md:text-4xl font-bold mb-2">KinkFlow</h1>
           <p className="text-[#4A4238]/60 mb-6 md:mb-8 text-sm">BDSM 探索與教學互動平台</p>
           
-          <form onSubmit={(e) => { e.preventDefault(); if(loginInput.trim()) handleLogin(loginInput.trim()); }}>
-            <input 
-              type="text" 
+          <form onSubmit={(e) => { e.preventDefault(); void handleLogin(loginInput); }}>
+            <input
+              type="text"
               value={loginInput}
-              onChange={(e) => setLoginInput(e.target.value)}
-              placeholder="請輸入您的專屬 ID (如: 秋田)" 
-              className="w-full px-4 py-3 rounded-xl border border-[#D1C6B4]/40 focus:border-[#E8C5C8] focus:ring-1 focus:ring-[#E8C5C8] outline-none mb-4 text-sm bg-white" 
+              onChange={(e) => {
+                setLoginInput(e.target.value);
+                if (loginError) setLoginError('');
+              }}
+              placeholder="請輸入您的專屬 ID (如: 秋田)"
+              aria-label="訪客專屬 ID"
+              autoComplete="nickname"
+              minLength={GUEST_NAME_MIN_LENGTH}
+              maxLength={GUEST_NAME_MAX_LENGTH}
+              required
+              className="w-full px-4 py-3 rounded-xl border border-[#D1C6B4]/40 focus:border-[#E8C5C8] focus:ring-1 focus:ring-[#E8C5C8] outline-none mb-2 text-sm bg-white"
             />
+            <div className="min-h-5 mb-2 text-left text-xs font-bold text-red-600" role="alert" aria-live="polite">
+              {loginError}
+            </div>
             <button type="submit" className="w-full py-3 bg-[#4A4238] text-white font-bold rounded-xl hover:bg-[#4A4238]/80 hover:scale-[1.02] active:scale-95 transition-all shadow-md">🚀 訪客快速登入</button>
           </form>
           
@@ -375,14 +443,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           </button>
           
           <button 
-            onClick={() => {
-              if (deferredPrompt) {
-                deferredPrompt.prompt();
-                deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
-              } else {
-                setShowPwaModal(true);
-              }
-            }}
+            onClick={handleInstallApp}
             className="text-xs px-3 py-1.5 rounded-full bg-[#C5D4B6]/40 hover:bg-[#C5D4B6]/80 text-[#1A1612] border border-[#C5D4B6]/60 font-bold transition-all flex items-center gap-1 shadow-xs shrink-0"
             title="點擊安裝至手機桌面 App"
           >
@@ -570,6 +631,11 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
             <button onClick={() => setShowPwaModal(false)} className="absolute top-4 right-4 p-2 bg-[#E8C5C8]/30 hover:bg-[#E8C5C8] text-[#4A4238] rounded-full text-xs font-bold transition-colors">✕</button>
             <h3 className="text-xl font-black text-[#4A4238] mb-2 flex items-center gap-2">📱 將 KinkFlow 新增至手機桌面 App</h3>
             <p className="text-xs text-[#4A4238]/70 mb-4">不用到 App Store 免費快速安裝！全螢幕體驗、絲滑流暢、零網址列：</p>
+            {pwaMessage && (
+              <p className="mb-4 rounded-xl border border-[#C5D4B6] bg-[#C5D4B6]/20 p-3 text-xs font-bold text-[#1A1612]" role="status" aria-live="polite">
+                {pwaMessage}
+              </p>
+            )}
             
             <div className="space-y-3 text-xs bg-white p-4 rounded-2xl border border-[#D1C6B4]/30">
               <div className="border-b border-[#D1C6B4]/20 pb-2">

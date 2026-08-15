@@ -23,6 +23,7 @@ export function QuizScenarioPhase({
 }: QuizScenarioPhaseProps) {
   const { globalAssets } = useQuizConfig();
   const scenarioBg = (currentQ as any).backgroundImage || globalAssets?.defaultScenarioBg;
+  const questionNumber = Math.min(Math.max(scenarioHistoryLength + 1, 1), 13);
 
   return (
     <div className={`max-w-2xl mx-auto w-full transition-all duration-[400ms] px-2 sm:px-0 ${isLeaving ? 'opacity-0 translate-y-4 scale-[0.98]' : 'opacity-100 translate-y-0 scale-100'}`}>
@@ -39,7 +40,7 @@ export function QuizScenarioPhase({
         </button>
         <div className="flex items-center gap-3">
           <span className="text-[11px] font-mono font-black text-[#D9B650] tracking-widest bg-white/80 px-2.5 py-0.5 rounded-full border border-[#D1C6B4]/40 shadow-2xs">
-            IMAGE {((currentQ as any).stepIndex || 1)} / 13
+            進度 {questionNumber} / 13
           </span>
           {onCancel && (
             <button onClick={onCancel} className="text-[#1A1612] hover:text-red-500 font-bold p-1 cursor-pointer" title="結束測驗">

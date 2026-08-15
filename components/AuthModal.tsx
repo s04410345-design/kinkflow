@@ -8,6 +8,8 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
   const [isResettingPassword, setIsResettingPassword] = useState(defaultMode === 'reset_password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -20,6 +22,14 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
     e.preventDefault();
     if (!isResettingPassword && !email.trim()) return;
     if (!isForgotPassword && !isResettingPassword && !password) return;
+    if (!isLogin && !isForgotPassword && !isResettingPassword && password !== confirmPassword) {
+      setError('兩次輸入的密碼不一致。');
+      return;
+    }
+    if (!isLogin && !isForgotPassword && !isResettingPassword && !acceptedPolicies) {
+      setError('註冊前請先確認已年滿 18 歲並同意社群規範。');
+      return;
+    }
     
     setError('');
     setLoading(true);
@@ -120,7 +130,7 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-[#D1C6B4]/30 relative animate-slide-up max-h-[90vh] overflow-y-auto no-scrollbar">
-        <button onClick={onClose} className="absolute top-5 right-5 text-[#4A4238]/40 hover:text-[#4A4238] font-bold">✕</button>
+        <button type="button" onClick={onClose} aria-label="關閉登入視窗" className="absolute top-5 right-5 text-[#4A4238]/40 hover:text-[#4A4238] font-bold">✕</button>
         <h2 className="text-2xl font-bold text-center text-[#4A4238] mb-2">
           {isResettingPassword ? '設定新密碼' : isForgotPassword ? '重設密碼' : isLogin ? '登入 KinkFlow' : '註冊完整帳號'}
         </h2>
@@ -145,21 +155,33 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
           </p>
         )}
         
-        {error && <div className="mb-4 text-xs text-[#E08A8A] bg-[#E08A8A]/10 p-3 rounded-xl border border-[#E08A8A]/30 font-bold">{error}</div>}
+        {error && <div className="mb-4 text-xs text-[#E08A8A] bg-[#E08A8A]/10 p-3 rounded-xl border border-[#E08A8A]/30 font-bold" role="alert" aria-live="assertive">{error}</div>}
         
         <form onSubmit={handleSubmit} className="space-y-4">
           {!isResettingPassword && (
             <div>
-              <label className="block text-xs font-bold text-[#4A4238]/70 mb-1">Email 信箱</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required={!isResettingPassword} placeholder="請輸入 Email"
+              <label htmlFor="auth-email" className="block text-xs font-bold text-[#4A4238]/70 mb-1">Email 信箱</label>
+              <input id="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required={!isResettingPassword} placeholder="請輸入 Email" autoComplete="email"
                 className="w-full bg-[#FDFBF7] border border-[#D1C6B4]/60 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#C5D4B6] transition-colors" />
             </div>
           )}
           {!isForgotPassword && (
             <div>
-              <label className="block text-xs font-bold text-[#4A4238]/70 mb-1">{isResettingPassword ? '新密碼' : '密碼'}</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} placeholder="至少 6 個字元"
+              <label htmlFor="auth-password" className="block text-xs font-bold text-[#4A4238]/70 mb-1">{isResettingPassword ? '新密碼' : '密碼'}</label>
+              <input id="auth-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} placeholder="至少 6 個字元" autoComplete={isResettingPassword || !isLogin ? 'new-password' : 'current-password'}
                 className="w-full bg-[#FDFBF7] border border-[#D1C6B4]/60 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#C5D4B6] transition-colors" />
+            </div>
+          )}
+
+          {!isLogin && !isForgotPassword && !isResettingPassword && (
+            <div>
+              <label htmlFor="auth-password-confirm" className="block text-xs font-bold text-[#4A4238]/70 mb-1">確認密碼</label>
+              <input id="auth-password-confirm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} placeholder="再次輸入密碼" autoComplete="new-password"
+                className="w-full bg-[#FDFBF7] border border-[#D1C6B4]/60 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#C5D4B6] transition-colors" />
+              <label htmlFor="auth-policy-consent" className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-[#4A4238]/80">
+                <input id="auth-policy-consent" type="checkbox" checked={acceptedPolicies} onChange={(e) => setAcceptedPolicies(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#4A4238]" />
+                <span>我已年滿 18 歲，並已閱讀且同意遵守本站社群規範、隱私與安全要求。</span>
+              </label>
             </div>
           )}
           
@@ -176,7 +198,7 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
         </div>
 
         <div className="space-y-3">
-          <button type="button" onClick={() => handleOAuth('google')}
+            <button type="button" aria-label="使用 Google 登入" onClick={() => handleOAuth('google')}
             className="w-full bg-white border border-[#D1C6B4]/60 text-[#4A4238] font-bold rounded-xl py-3 flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors shadow-sm text-sm">
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -187,7 +209,7 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
             Google 登入
           </button>
           
-          <button type="button" onClick={() => handleOAuth('twitter')}
+          <button type="button" aria-label="使用 Twitter X 登入" onClick={() => handleOAuth('twitter')}
             className="w-full bg-[#1DA1F2] text-white font-bold rounded-xl py-3 flex items-center justify-center gap-2 hover:bg-[#1DA1F2]/80 transition-colors shadow-sm text-sm">
             <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>
             Twitter (X) 登入
@@ -210,6 +232,8 @@ export default function AuthModal({ onClose, onLoginSuccess, defaultMode = 'logi
               } else {
                 setIsLogin(!isLogin);
               }
+              setConfirmPassword('');
+              setAcceptedPolicies(false);
               setError(''); 
             }} className="font-bold text-[#C5D4B6] hover:underline">
               {isForgotPassword ? '返回登入' : isLogin ? '立即註冊' : '登入現有帳號'}
