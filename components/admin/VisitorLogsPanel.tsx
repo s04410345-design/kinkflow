@@ -1,18 +1,20 @@
 "use client";
 
-// @ts-nocheck
 import { useState, useMemo } from 'react';
+import { formatDiscussionDate } from '@/lib/contentModel';
+import {
+  buildCommentLogs,
+  formatCommentLog,
+  formatLogDate,
+  getLogDisplayName,
+  matchesAdminUser,
+  matchesSearch,
+  type AdminLogEntry,
+  type CommentLogItem,
+} from '@/lib/data/adminLogs';
 import type { DiscussionPost } from '@/lib/types';
-import { formatDiscussionDate, parseDiscussionDate } from '@/lib/contentModel';
 
-interface LogEntry {
-  id: string;
-  created_at: string;
-  action_type: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  details: any;
-  device_id?: string;
-}
+type LogEntry = AdminLogEntry;
 
 export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRefresh }: {
   logs: LogEntry[];
@@ -27,74 +29,30 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
   const registerLogs = useMemo(() => logs.filter(l => l.action_type === 'user_register'), [logs]);
   const quizLogs = useMemo(() => logs.filter(l => l.action_type === 'quiz_complete'), [logs]);
   const voteLogs = useMemo(() => logs.filter(l => l.action_type === 'node_vote'), [logs]);
-  
-  const commentLogs = useMemo(() => {
-    return Object.entries(discussions).flatMap(([nodeId, posts]) => 
-      posts.flatMap(p => {
-        const res = [{
-          id: p.id.toString(),
-          nodeId,
-          author: p.author,
-          text: p.text,
-          timestamp: p.timestamp,
-          type: 'post'
-        }];
-        if (p.replies) {
-          p.replies.forEach((r, i) => {
-            res.push({
-              id: `${p.id}_reply_${i}`,
-              nodeId,
-              author: r.author,
-              text: r.text,
-              timestamp: r.timestamp || p.timestamp,
-              type: 'reply'
-            });
-          });
-        }
-        return res;
-      })
-    ).sort((a, b) => (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
-  }, [discussions]);
-
-  const matchesSearch = (text: string) => {
-    if (!searchQuery) return true;
-    return text.toLowerCase().includes(searchQuery.toLowerCase());
-  };
-
-  const getBaseName = (name: string) => {
-    if (!name) return '';
-    return name.replace(' ☑️', '').replace(' 👻', '').split('@')[0];
-  };
-
-  const matchesUser = (userName: string | undefined, deviceId: string | undefined) => {
-    if (!selectedUser) return true;
-    const targetBase = getBaseName(selectedUser);
-    return (userName && getBaseName(userName) === targetBase) || (deviceId && deviceId === selectedUser);
-  };
+  const commentLogs = useMemo(() => buildCommentLogs(discussions), [discussions]);
 
   const filteredRegisters = registerLogs.filter(l => {
-    const name = l.details?.userName || l.details?.email || '未命名訪客';
+    const name = getLogDisplayName(l);
     const device = l.device_id || '無裝置紀錄';
-    return matchesSearch(name + device) && matchesUser(name, device);
+    return matchesSearch(name + device, searchQuery) && matchesAdminUser(name, l.device_id, selectedUser);
   });
 
   const filteredQuizzes = quizLogs.filter(l => {
-    const name = l.details?.userName || '未知';
+    const name = l.details.userName || '未知';
     const device = l.device_id || '';
-    return matchesSearch(name + device) && matchesUser(name, device);
+    return matchesSearch(name + device, searchQuery) && matchesAdminUser(name, l.device_id, selectedUser);
   });
 
   const filteredVotes = voteLogs.filter(l => {
-    const name = l.details?.userName || '未知';
+    const name = l.details.userName || '未知';
     const device = l.device_id || '';
-    const nodeLabel = l.details?.node_label || nodeNameMap[l.details?.node_id] || '';
-    return matchesSearch(name + device + nodeLabel) && matchesUser(name, device);
+    const nodeLabel = l.details.node_label || (typeof l.details.node_id === 'string' ? nodeNameMap[l.details.node_id] : '') || '';
+    return matchesSearch(name + device + nodeLabel, searchQuery) && matchesAdminUser(name, l.device_id, selectedUser);
   });
 
-  const filteredComments = commentLogs.filter(c => {
-    const name = c.author;
+  const filteredComments = commentLogs.filter((c: CommentLogItem) => {
     const nodeLabel = nodeNameMap[c.nodeId] || c.nodeId;
-    return matchesSearch(name + c.text + nodeLabel) && matchesUser(name, '');
+    return matchesSearch(c.author + c.text + nodeLabel, searchQuery) && matchesAdminUser(c.author, null, selectedUser);
   });
 
   const exportMarkdown = (title: string, data: string) => {
@@ -108,10 +66,10 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
     document.body.removeChild(link);
   };
 
-  const formatRegisters = () => filteredRegisters.map(l => `- **${new Date(l.created_at).toLocaleString('zh-TW')}**: ${l.details?.userName || l.details?.email || '未命名訪客'} - 裝置: ${l.device_id?.slice(0,8) || '無裝置紀錄'}`).join('\n');
-  const formatQuizzes = () => filteredQuizzes.map(l => `- **${new Date(l.created_at).toLocaleString('zh-TW')}**: ${l.details?.userName || '未命名訪客'} 完成測驗 (最高特質: ${l.details?.top_trait || '未知'})`).join('\n');
-  const formatVotes = () => filteredVotes.map(l => `- **${new Date(l.created_at).toLocaleString('zh-TW')}**: ${l.details?.userName || '未知'} 投票 [${l.details?.node_label || nodeNameMap[l.details?.node_id]}] -> ${l.details?.vote_type}`).join('\n');
-  const formatComments = () => filteredComments.map(c => `- **${formatDiscussionDate(c.timestamp)}**: ${c.author} 在 [${nodeNameMap[c.nodeId] || c.nodeId}] 留言: "${c.text}"`).join('\n');
+  const formatRegisters = () => filteredRegisters.map(l => `- **${formatLogDate(l.created_at)}**: ${getLogDisplayName(l)} - 裝置: ${l.device_id?.slice(0, 8) || '無裝置紀錄'}`).join('\n');
+  const formatQuizzes = () => filteredQuizzes.map(l => `- **${formatLogDate(l.created_at)}**: ${l.details.userName || '未命名訪客'} 完成測驗 (最高特質: ${l.details.top_trait || '未知'})`).join('\n');
+  const formatVotes = () => filteredVotes.map(l => `- **${formatLogDate(l.created_at)}**: ${l.details.userName || '未知'} 投票 [${l.details.node_label || (typeof l.details.node_id === 'string' ? nodeNameMap[l.details.node_id] : '') || '未知節點'}] -> ${l.details.vote_type || '未知'}`).join('\n');
+  const formatComments = () => filteredComments.map(c => formatCommentLog(c, nodeNameMap)).join('\n');
 
   const exportAll = () => {
     const md = `# 訪客與行為管理總匯出\n\n## 註冊列表\n${formatRegisters() || '無紀錄'}\n\n## 測驗列表\n${formatQuizzes() || '無紀錄'}\n\n## 留言列表\n${formatComments() || '無紀錄'}\n\n## 投票列表\n${formatVotes() || '無紀錄'}\n`;
@@ -170,8 +128,8 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
             <div className="overflow-y-auto flex-1 no-scrollbar pr-2 space-y-3">
               {filteredRegisters.length === 0 && <div className="text-center text-sm text-gray-400 mt-10">無相關紀錄</div>}
               {filteredRegisters.map(l => (
-                <div key={l.id} className="p-4 rounded-xl border border-[#D1C6B4]/10 bg-white hover:border-[#D1C6B4]/40 hover:shadow-sm transition-all cursor-pointer" onClick={() => setSelectedUser(l.details?.userName || l.details?.email || l.device_id)}>
-                  <div className="text-[#4A4238]/50 mb-1 text-xs font-mono">{new Date(l.created_at).toLocaleString('zh-TW')}</div>
+                <div key={l.id} className="p-4 rounded-xl border border-[#D1C6B4]/10 bg-white hover:border-[#D1C6B4]/40 hover:shadow-sm transition-all cursor-pointer" onClick={() => setSelectedUser(l.details.userName || l.details.email || l.device_id || null)}>
+                  <div className="text-[#4A4238]/50 mb-1 text-xs font-mono">{formatLogDate(l.created_at)}</div>
                   <div className="flex justify-between items-center text-[#4A4238]">
                      <span className="font-bold text-base">{l.details?.email || (l.details?.userName ? '會員' : '匿名遊客')}</span>
                      <span className="text-[#4A4238]/70 font-medium text-sm">{l.details?.userName || l.device_id?.slice(0, 8)}</span>
@@ -192,9 +150,9 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
             <div className="overflow-y-auto flex-1 no-scrollbar pr-2 space-y-3">
               {filteredQuizzes.length === 0 && <div className="text-center text-sm text-gray-400 mt-10">無相關紀錄</div>}
               {filteredQuizzes.map(l => (
-                <div key={l.id} className="p-4 rounded-xl border border-[#D1C6B4]/10 bg-white hover:border-[#D1C6B4]/40 hover:shadow-sm transition-all cursor-pointer flex justify-between items-center" onClick={() => setSelectedUser(l.details?.userName || l.device_id)}>
+                <div key={l.id} className="p-4 rounded-xl border border-[#D1C6B4]/10 bg-white hover:border-[#D1C6B4]/40 hover:shadow-sm transition-all cursor-pointer flex justify-between items-center" onClick={() => setSelectedUser(l.details.userName || l.device_id || null)}>
                   <div>
-                    <div className="text-[#4A4238]/50 mb-1 text-xs font-mono">{new Date(l.created_at).toLocaleString('zh-TW')}</div>
+                    <div className="text-[#4A4238]/50 mb-1 text-xs font-mono">{formatLogDate(l.created_at)}</div>
                     <div className="font-bold text-[#4A4238] text-base">{l.details?.userName || '未知'}</div>
                   </div>
                   <div className="text-right">
@@ -239,11 +197,11 @@ export default function VisitorLogsPanel({ logs, discussions, nodeNameMap, onRef
             <div className="overflow-y-auto flex-1 no-scrollbar pr-2 space-y-3">
               {filteredVotes.length === 0 && <div className="text-center text-sm text-gray-400 mt-10">無相關紀錄</div>}
               {filteredVotes.map(l => (
-                <div key={l.id} className="p-4 rounded-xl border border-[#D1C6B4]/10 bg-white hover:border-[#D1C6B4]/40 hover:shadow-sm transition-all cursor-pointer flex justify-between items-center" onClick={() => setSelectedUser(l.details?.userName || l.device_id)}>
+                <div key={l.id} className="p-4 rounded-xl border border-[#D1C6B4]/10 bg-white hover:border-[#D1C6B4]/40 hover:shadow-sm transition-all cursor-pointer flex justify-between items-center" onClick={() => setSelectedUser(l.details.userName || l.device_id || null)}>
                   <div>
                     <div className="flex gap-2 items-center mb-1">
-                      <span className="text-[#4A4238]/50 text-xs font-mono">{new Date(l.created_at).toLocaleString('zh-TW')}</span>
-                      <span className="bg-[#D1C6B4]/30 px-2 py-0.5 rounded text-xs text-[#4A4238] font-bold">{l.details?.node_label || nodeNameMap[l.details?.node_id] || ''}</span>
+                      <span className="text-[#4A4238]/50 text-xs font-mono">{formatLogDate(l.created_at)}</span>
+                      <span className="bg-[#D1C6B4]/30 px-2 py-0.5 rounded text-xs text-[#4A4238] font-bold">{l.details.node_label || (typeof l.details.node_id === 'string' ? nodeNameMap[l.details.node_id] : '') || ''}</span>
                     </div>
                     <div className="font-bold text-[#4A4238] text-base">{l.details?.userName || '未知'}</div>
                   </div>

@@ -2,14 +2,15 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { graphNodes } from '@/lib/constants';
+import type { AdminNodeImages } from '@/lib/data/admin';
 
 interface NodeContentEditorProps {
   mindmapJson: string;
   setMindmapJson: (json: string) => void;
   onSave: (keyName: string, data: string | object, isJson?: boolean) => Promise<void>;
   saving: boolean;
-  nodeImages: Record<string, { icon?: string, image?: string }>;
-  setNodeImages: React.Dispatch<React.SetStateAction<Record<string, { icon?: string, image?: string }>>>;
+  nodeImages: AdminNodeImages;
+  setNodeImages: React.Dispatch<React.SetStateAction<AdminNodeImages>>;
   uploadingState: Record<string, boolean>;
   handleFileUpload: (nodeId: string, type: 'icon' | 'image', file: File) => Promise<void>;
 }

@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import {
+  fetchProfileLayout,
+  fetchUserStyleConfig,
+  saveProfileLayout,
+  saveUserStyleConfig,
+  type ProfileLayoutConfig,
+} from '@/lib/data/adminSettings';
 
 interface StyleConfigModalProps {
   userName: string;
@@ -41,35 +47,43 @@ export default function StyleConfigModal({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const cleanName = userName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim();
-
   useEffect(() => {
-    // 讀取既有 profile_layout 設定 (包含個人簡介風格 profileStyle)
+    let cancelled = false;
+
     async function loadConfig() {
       try {
-        const { data: layoutDataArray } = await supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout');
-        const layoutData = layoutDataArray?.[0]?.content as any;
-        if (layoutData) {
-          if (layoutData.profileStyle) setProfileStyle(layoutData.profileStyle);
-          if (layoutData.modules) {
-            const merged = DEFAULT_MODULES.map(defMod => {
-              const found = layoutData.modules.find((m: any) => m.id === defMod.id);
-              return found ? { ...defMod, visible: found.visible, order: found.order ?? defMod.order, column: found.column || defMod.column } : defMod;
-            }).sort((a, b) => a.order - b.order);
-            setModules(merged);
-          }
-        }
+        const [layoutData, userContent] = await Promise.all([
+          fetchProfileLayout(),
+          fetchUserStyleConfig(userName),
+        ]);
+        if (cancelled) return;
 
-        const { data: userConfigArray } = await supabase.from('quiz_content').select('content').eq('key_name', `user_${cleanName}`);
-        const userContent = userConfigArray?.[0]?.content as any;
-        if (userContent?.theme) setCurrentTheme(userContent.theme);
-        if (userContent?.profileStyle) setProfileStyle(userContent.profileStyle);
-      } catch (e) {
-        console.error(e);
+        if (layoutData.profileStyle) setProfileStyle(layoutData.profileStyle);
+        const merged = DEFAULT_MODULES.map((defMod) => {
+          const found = layoutData.modules.find((module) => module.id === defMod.id);
+          return found
+            ? {
+                ...defMod,
+                visible: found.visible,
+                order: found.order ?? defMod.order,
+                column: found.column || defMod.column,
+              }
+            : defMod;
+        }).sort((a, b) => a.order - b.order);
+        setModules(merged);
+
+        if (typeof userContent.theme === 'string') setCurrentTheme(userContent.theme);
+        if (typeof userContent.profileStyle === 'string') setProfileStyle(userContent.profileStyle);
+      } catch (error) {
+        console.error('Failed to load style config', error);
       }
     }
-    loadConfig();
-  }, [cleanName]);
+
+    void loadConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [userName]);
 
   const applyThemeToDom = (theme: string) => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -111,24 +125,12 @@ export default function StyleConfigModal({
     setSaving(true);
     setMsg('');
     try {
-      // 100% 寫入全局 profile_layout，使前台個人簡介排版與簡介風格 100% 與後台同步！
-      await supabase.from('quiz_content').upsert({
-        key_name: 'profile_layout',
-        content: {
-          theme: currentTheme,
-          profileStyle: profileStyle,
-          modules: modules
-        }
-      }, { onConflict: 'key_name' });
-
-      // 讀取個人設定再合併主題與簡介風格
-      const { data: existingArr } = await supabase.from('quiz_content').select('content').eq('key_name', `user_${cleanName}`);
-      const existing = existingArr?.[0]?.content || {};
-
-      await supabase.from('quiz_content').upsert({
-        key_name: `user_${cleanName}`,
-        content: { ...existing, theme: currentTheme, profileStyle: profileStyle, updatedAt: new Date().toISOString() }
-      }, { onConflict: 'key_name' });
+      await saveProfileLayout({
+        theme: currentTheme as ProfileLayoutConfig['theme'],
+        profileStyle,
+        modules,
+      });
+      await saveUserStyleConfig(userName, { theme: currentTheme, profileStyle });
 
       applyThemeToDom(currentTheme);
 

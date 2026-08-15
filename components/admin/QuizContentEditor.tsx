@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import ScoringAnalyzer from './ScoringAnalyzer';
+import { uploadQuizImage } from '@/lib/data/adminSettings';
 
 interface QuizContentEditorProps {
   quizJson: string;
@@ -151,15 +152,11 @@ export default function QuizContentEditor({ quizJson, setQuizJson, onSave, savin
     if (!file) return;
     setUploading(true);
     try {
-      const { supabase } = await import('@/lib/supabase');
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${prefix}_${Date.now()}.${fileExt}`;
-      const { data, error } = await supabase.storage.from('quiz-images').upload(`${folder}/${fileName}`, file, { upsert: true });
-      if (error) throw error;
-      const { data: { publicUrl } } = supabase.storage.from('quiz-images').getPublicUrl(`${folder}/${fileName}`);
+      const publicUrl = await uploadQuizImage(folder, prefix, file);
       callback(publicUrl);
-    } catch (err: any) {
-      alert('圖片上傳失敗: ' + err.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知錯誤';
+      alert('圖片上傳失敗: ' + message);
     } finally {
       setUploading(false);
     }
