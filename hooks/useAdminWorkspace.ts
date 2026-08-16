@@ -10,6 +10,7 @@ import {
   fetchAdminLogs,
   saveAdminContent,
   publishNodeContent,
+  publishQuizContent,
 } from '@/lib/data/admin';
 import type { AdminNodeImages } from '@/lib/data/admin';
 import type { AdminLogEntry } from '@/lib/data/adminLogs';
@@ -62,6 +63,7 @@ export type AdminWorkspace = {
   fetchStats: () => Promise<void>;
   handleSave: (keyName: string, data: unknown, isJson?: boolean) => Promise<void>;
   publishNodes: () => Promise<void>;
+  publishQuiz: () => Promise<void>;
   handleFileUpload: (nodeId: string, type: 'icon' | 'image', file: File) => Promise<void>;
   handleDeletePost: (postId: string | number) => Promise<void>;
   handleClearNodePosts: (nodeId: string) => Promise<void>;
@@ -185,7 +187,7 @@ export function useAdminWorkspace(adminLevel: number | null, isAuth: boolean): A
     setSaving(true);
     setMessage('');
     try {
-      const draftKey = keyName === 'mindmap_data' ? 'mindmap_data_draft' : keyName === 'node_images' ? 'node_images_draft' : keyName;
+      const draftKey = keyName === 'mindmap_data' ? 'mindmap_data_draft' : keyName === 'node_images' ? 'node_images_draft' : keyName === 'quiz_system_config' ? 'quiz_system_config_draft' : keyName;
       const result = await saveAdminContent(draftKey, data, isJson);
       setMessage(result.ok ? '✅ 草稿已儲存；前台仍維持目前已發布版本。' : `❌ 草稿儲存失敗：${result.message || ''}`);
     } finally {
@@ -193,6 +195,21 @@ export function useAdminWorkspace(adminLevel: number | null, isAuth: boolean): A
       window.setTimeout(() => setMessage(''), 5000);
     }
   }, [adminLevel]);
+
+  const publishQuiz = useCallback(async () => {
+    if (adminLevel === 3) {
+      setMessage('❌ Level 3 僅供觀看，無法發布測驗內容。');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const result = await publishQuizContent(quizJson);
+      setMessage(result.ok ? '✅ 測驗內容已發布，前台現在會顯示這個版本。' : `❌ 測驗發布失敗：${result.message || ''}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [adminLevel, quizJson]);
 
   const publishNodes = useCallback(async () => {
     if (adminLevel === 3) {
@@ -449,6 +466,7 @@ export function useAdminWorkspace(adminLevel: number | null, isAuth: boolean): A
     fetchStats,
     handleSave,
     publishNodes,
+    publishQuiz,
     handleFileUpload,
     handleDeletePost,
     handleClearNodePosts,

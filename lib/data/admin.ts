@@ -143,6 +143,17 @@ export async function saveAdminContent(keyName: string, data: unknown, isJson = 
   }
 }
 
+export async function publishQuizContent(quizJson: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const content = JSON.parse(quizJson) as unknown;
+    if (!content || typeof content !== 'object' || Array.isArray(content)) return { ok: false, message: '測驗內容格式不可為空。' };
+    const { error } = await supabase.from('quiz_content').upsert({ key_name: 'quiz_system_config', content }, { onConflict: 'key_name' });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '測驗發布內容格式錯誤' };
+  }
+}
+
 export async function publishNodeContent(mindmapJson: string, nodeImages: AdminNodeImages): Promise<{ ok: boolean; message?: string }> {
   try {
     const nodes = JSON.parse(mindmapJson) as unknown;

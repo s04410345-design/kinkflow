@@ -132,6 +132,7 @@ export default function AdminDashboard() {
             quizJson={workspace.quizJson}
             setQuizJson={workspace.setQuizJson}
             onSave={workspace.handleSave}
+            onPublish={workspace.publishQuiz}
             saving={workspace.saving}
           />
         ))}
