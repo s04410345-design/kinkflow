@@ -7,11 +7,6 @@ type RouteContext = {
   params: Promise<{ discussionId: string }>;
 };
 
-type DiscussionReply = {
-  id?: string | number;
-  [key: string]: unknown;
-};
-
 function isValidDiscussionId(value: string) {
   return value.length > 0 && value.length <= 128 && /^[A-Za-z0-9_-]+$/.test(value);
 }
@@ -34,35 +29,27 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const hasReplyId = body.replyId !== undefined && body.replyId !== null;
 
   if (hasReplyId) {
-    const { data: parent, error: readError } = await serviceClient
+    const replyId = String(body.replyId);
+    if (!isValidDiscussionId(replyId)) {
+      return NextResponse.json({ error: 'Invalid reply ID' }, { status: 400 });
+    }
+
+    const { data: deletedReply, error: deleteReplyError } = await serviceClient
       .from('discussions')
-      .select('replies')
-      .eq('id', discussionId)
+      .delete()
+      .eq('id', replyId)
+      .eq('parent_id', discussionId)
+      .select('id,parent_id')
       .maybeSingle();
 
-    if (readError) {
-      return NextResponse.json({ error: 'Unable to read discussion' }, { status: 500 });
+    if (deleteReplyError) {
+      return NextResponse.json({ error: 'Unable to delete reply' }, { status: 500 });
     }
-    if (!parent) {
-      return NextResponse.json({ error: 'Discussion not found' }, { status: 404 });
-    }
-
-    const replies = Array.isArray(parent.replies) ? parent.replies as DiscussionReply[] : [];
-    const nextReplies = replies.filter((reply) => String(reply.id) !== String(body.replyId));
-    if (nextReplies.length === replies.length) {
+    if (!deletedReply) {
       return NextResponse.json({ error: 'Reply not found' }, { status: 404 });
     }
 
-    const { error: updateError } = await serviceClient
-      .from('discussions')
-      .update({ replies: nextReplies })
-      .eq('id', discussionId);
-
-    if (updateError) {
-      return NextResponse.json({ error: 'Unable to delete reply' }, { status: 500 });
-    }
-
-    return NextResponse.json({ ok: true, deleted: { discussionId, replyId: body.replyId } });
+    return NextResponse.json({ ok: true, deleted: { discussionId, replyId: deletedReply.id } });
   }
 
   const { data: deleted, error: deleteError } = await serviceClient

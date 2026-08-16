@@ -224,11 +224,13 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     const fallbackInterval = setInterval(async () => {
       if (document.visibilityState === 'hidden') return;
       try {
-        const [{ data: dbDiscussions }, lobbyChatRows] = await Promise.all([
-          supabase.from('discussions').select('*').limit(500),
+        const [{ data: dbDiscussions, error: discussionsError }, lobbyChatRows] = await Promise.all([
+          supabase.from('discussions').select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at').limit(500),
           fetchLobbyChat(200),
         ]);
-        if (Array.isArray(dbDiscussions)) {
+        if (discussionsError) {
+          console.warn('[Supabase] discussion polling failed:', discussionsError.message);
+        } else if (Array.isArray(dbDiscussions)) {
           const cleanedDiscussions = groupDiscussionRows(dbDiscussions as DiscussionRow[]);
           if (lobbyChatRows.length > 0) cleanedDiscussions.lobby_chat = lobbyChatRows.map(lobbyChatToDiscussionPost);
           setAppData(prev => {

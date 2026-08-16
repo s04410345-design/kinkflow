@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/serverAuth';
 
+type JsonRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
 export async function POST(req: Request) {
   try {
     const auth = await requireUser(req);
@@ -23,18 +29,49 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Name must be between 1 and 80 characters' }, { status: 400 });
     }
 
-    const { error } = await auth.client.from('profiles').update({
-      username: targetName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim(),
-      bio,
-      avatar_url: editAvatarUrl,
-      cover_url: editCoverUrl,
-      gender,
-      bdsm_role: bdsmRole,
-    }).eq('id', auth.user.id);
+    const { data: currentProfile, error: readError } = await auth.client
+      .from('profiles')
+      .select('id,layout_config')
+      .eq('id', auth.user.id)
+      .maybeSingle();
+    if (readError) {
+      console.error('[updateProfile] profile read failed:', readError.message);
+      return NextResponse.json({ error: 'Unable to read profile' }, { status: 400 });
+    }
+    if (!currentProfile?.id) {
+      return NextResponse.json({ error: 'Profile does not exist' }, { status: 404 });
+    }
+
+    const currentLayout = asRecord(currentProfile.layout_config);
+    const currentMeta = asRecord(currentLayout.profileMeta);
+    const layoutConfig = {
+      ...currentLayout,
+      profileMeta: {
+        ...currentMeta,
+        coverUrl: editCoverUrl,
+        gender,
+        bdsmRole,
+      },
+    };
+
+    const { data: updatedProfile, error } = await auth.client
+      .from('profiles')
+      .update({
+        username: targetName.replace(/ ☑️/g, '').replace(/ 👻/g, '').trim(),
+        bio,
+        avatar_url: editAvatarUrl,
+        layout_config: layoutConfig,
+      })
+      .eq('id', auth.user.id)
+      .select('id')
+      .maybeSingle();
 
     if (error) {
       console.error('[updateProfile] profile update failed:', error.message);
       return NextResponse.json({ error: 'Unable to update profile' }, { status: 400 });
+    }
+    if (!updatedProfile?.id) {
+      return NextResponse.json({ error: 'Profile was not updated' }, { status: 409 });
     }
 
     return NextResponse.json({ success: true });

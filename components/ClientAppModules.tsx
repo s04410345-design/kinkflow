@@ -94,7 +94,7 @@ export default function ClientAppModules({
     )}
     {activeTab === 'forum' && (
       <ErrorBoundary moduleName="討論版">
-        <ForumFeature nodesData={effectiveNodes} discussions={appData.discussions} isMember={!isGuest && Boolean(userId)} currentUserId={userId} />
+        <ForumFeature nodesData={effectiveNodes} isMember={!isGuest && Boolean(userId)} currentUserId={userId} />
       </ErrorBoundary>
     )}
   </>;

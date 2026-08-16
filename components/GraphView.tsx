@@ -256,10 +256,13 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
          .attr("fill", "transparent")
          .style("pointer-events", "all");
 
+      const isMobileViewport = width < 768;
       let initOffsetX = width / 2;
-      let initOffsetY = height / 2;
-      
-      const initScale = 0.75;
+      // 手機版預留頂部導覽與底部操作區，避免心智圖垂直偏移到可視區外。
+      let initOffsetY = isMobileViewport ? height * 0.46 : height / 2;
+      // Level 1 節點半徑約 410px；手機版依視窗寬度動態縮小，確保左右節點與標籤不被裁切。
+      const mobileScale = Math.min(0.52, Math.max(0.38, (width - 24) / 920));
+      const initScale = isMobileViewport ? mobileScale : 0.75;
       const initialTransform = d3.zoomIdentity.translate(initOffsetX, initOffsetY).scale(initScale);
       
       transformRef.current = initialTransform;

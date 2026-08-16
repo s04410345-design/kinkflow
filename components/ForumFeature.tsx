@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DiscussionPost, GraphNode } from '@/lib/types';
 import { extractDiscussionContent, sortDiscussionPosts } from '@/lib/contentModel';
 import {
@@ -10,7 +10,6 @@ import {
   fetchPublishedForumPosts,
   formatForumDate,
   reportForumContent,
-  toLegacyForumItems,
   updateForumComment,
   updateForumPost,
   type ForumComment,
@@ -20,7 +19,6 @@ import {
 
 type ForumFeatureProps = {
   nodesData: GraphNode[];
-  discussions: Record<string, DiscussionPost[]>;
   isMember?: boolean;
   currentUserId?: string | null;
 };
@@ -71,10 +69,11 @@ function PostEditor({ title, body, setTitle, setBody, onSave, onCancel, saving, 
   );
 }
 
-export default function ForumFeature({ nodesData, discussions, isMember = false, currentUserId = null }: ForumFeatureProps) {
+export default function ForumFeature({ nodesData, isMember = false, currentUserId = null }: ForumFeatureProps) {
   const [activeNodeId, setActiveNodeId] = useState('all');
   const [livePosts, setLivePosts] = useState<ForumItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<'hot' | 'latest'>('latest');
   const [selectedPostId, setSelectedPostId] = useState<string | number | null>(null);
   const [comments, setComments] = useState<ForumComment[]>([]);
@@ -92,23 +91,34 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
   const [reportCategory, setReportCategory] = useState<ReportCategory>('other');
   const [reportDetails, setReportDetails] = useState('');
 
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     setIsLoading(true);
-    setLivePosts(await fetchPublishedForumPosts(nodesData));
-    setIsLoading(false);
-  };
+    setLoadError(null);
+    try {
+      setLivePosts(await fetchPublishedForumPosts(nodesData));
+    } catch (error) {
+      setLivePosts([]);
+      setLoadError(error instanceof Error ? error.message : '論壇內容暫時無法載入，請稍後再試。');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [nodesData]);
 
-  useEffect(() => { void loadPosts(); }, [nodesData]);
+  useEffect(() => { void loadPosts(); }, [loadPosts]);
 
-  const legacyItems = useMemo(() => toLegacyForumItems(nodesData, discussions), [nodesData, discussions]);
-  const items = livePosts.length ? livePosts : legacyItems;
+  const items = livePosts;
   const visibleItems = useMemo(() => sortDiscussionPosts(activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId), sortMode), [activeNodeId, items, sortMode]);
   const selectedPost = items.find((post) => String(post.id) === String(selectedPostId)) || null;
   const selectedPostIsOwner = Boolean(currentUserId && selectedPost?.authorId && selectedPost.authorId === currentUserId);
 
   useEffect(() => {
     if (!selectedPost || typeof selectedPost.id !== 'string' || selectedPost.id.startsWith('legacy')) { setComments([]); return; }
-    void fetchForumComments(selectedPost.id).then(setComments);
+    void fetchForumComments(selectedPost.id)
+      .then(setComments)
+      .catch((error: unknown) => {
+        setComments([]);
+        setNotice(error instanceof Error ? error.message : '留言暫時無法載入，請稍後再試。');
+      });
   }, [selectedPost]);
 
   const submitPost = async () => {
@@ -128,7 +138,14 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
     setSaving(true); setNotice(null);
     const result = await createForumComment(selectedPost.id, body);
     if (!result.ok) setNotice(result.message || '留言失敗，請稍後再試。');
-    else { setCommentText(''); setComments(await fetchForumComments(selectedPost.id)); }
+    else {
+      setCommentText('');
+      try {
+        setComments(await fetchForumComments(selectedPost.id));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : '留言暫時無法載入，請稍後再試。');
+      }
+    }
     setSaving(false);
   };
 
@@ -138,7 +155,15 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
     setSaving(true); setNotice(null);
     const result = await updateForumComment(editingCommentId, body);
     if (!result.ok) setNotice(result.message || '編輯留言失敗，請稍後再試。');
-    else if (selectedPost && typeof selectedPost.id === 'string') { setEditingCommentId(null); setEditingCommentBody(''); setComments(await fetchForumComments(selectedPost.id)); }
+    else if (selectedPost && typeof selectedPost.id === 'string') {
+      setEditingCommentId(null);
+      setEditingCommentBody('');
+      try {
+        setComments(await fetchForumComments(selectedPost.id));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : '留言暫時無法載入，請稍後再試。');
+      }
+    }
     setSaving(false);
   };
 
@@ -147,7 +172,13 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
     setSaving(true); setNotice(null);
     const result = await deleteForumComment(commentId);
     if (!result.ok) setNotice(result.message || '刪除留言失敗，請稍後再試。');
-    else if (selectedPost && typeof selectedPost.id === 'string') setComments(await fetchForumComments(selectedPost.id));
+    else if (selectedPost && typeof selectedPost.id === 'string') {
+      try {
+        setComments(await fetchForumComments(selectedPost.id));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : '留言暫時無法載入，請稍後再試。');
+      }
+    }
     setSaving(false);
   };
 
@@ -237,8 +268,9 @@ export default function ForumFeature({ nodesData, discussions, isMember = false,
         {notice && <div className="mb-4 rounded-xl border border-[#FCD34D] bg-[#FFFBEB] p-3 text-sm text-[#92400E]">{notice}</div>}
         {isMember && postFormOpen && !editingPost && <div className="mb-5"><PostEditor title={postTitle} body={postBody} setTitle={setPostTitle} setBody={setPostBody} onSave={() => void submitPost()} onCancel={() => setPostFormOpen(false)} saving={saving} nodesData={nodesData} nodeIds={postNodeIds} setNodeIds={setPostNodeIds} editing={false} /></div>}
         <div className="mb-5 flex items-center justify-between rounded-2xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm"><span className="font-bold text-[#334155]">共有 {visibleItems.length} 篇可顯示討論</span>{isMember ? <button type="button" onClick={() => { setEditingPost(false); setPostFormOpen((open) => !open); }} className="rounded-xl bg-[#172033] px-4 py-2 text-xs font-bold text-white">{postFormOpen ? '收起發文' : '發表新主題'}</button> : <span className="text-[#64748B]">登入後可以發文</span>}</div>
-        {isLoading && <div className="mb-5 rounded-2xl border border-[#CBD5E1] bg-white p-4 text-sm text-[#64748B]">正在載入正式討論…</div>}
-        {visibleItems.length === 0 ? <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有討論。可以先從心智圖節點開始探索。</div> : <div className="grid gap-4 lg:grid-cols-2">{visibleItems.map((post) => { const content = extractDiscussionContent(post.text, post.title, post.body, post.media); return <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md"><div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{formatForumDate(post.timestamp)}</span></div><h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2><p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>{content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}<div className="mt-4 flex gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>👍 {post.upvotes || 0}</span><span>回覆 {post.replies?.length || 0}</span></div></button>; })}</div>}
+        {isLoading && <div className="mb-5 rounded-2xl border border-[#CBD5E1] bg-white p-4 text-sm text-[#64748B]">正在載入正式討論……</div>}
+        {loadError && <div role="alert" className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#FECACA] bg-[#FFF1F2] p-4 text-sm text-[#9F1239] sm:flex-row sm:items-center sm:justify-between"><span>{loadError}</span><button type="button" onClick={() => void loadPosts()} className="shrink-0 rounded-xl border border-[#FDA4AF] px-3 py-2 text-xs font-bold">重新載入</button></div>}
+        {visibleItems.length === 0 && !isLoading && !loadError ? <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有正式討論。可以先從心智圖節點開始探索。</div> : visibleItems.length > 0 ? <div className="grid gap-4 lg:grid-cols-2">{visibleItems.map((post) => { const content = extractDiscussionContent(post.text, post.title, post.body, post.media); return <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md"><div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{formatForumDate(post.timestamp)}</span></div><h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2><p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>{content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}<div className="mt-4 flex gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>👍 {post.upvotes || 0}</span><span>回覆 {post.replies?.length || 0}</span></div></button>; })}</div> : null}
       </div>
     </section>
   );

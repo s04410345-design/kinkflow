@@ -10,7 +10,10 @@ import { useSupabaseSync } from '@/hooks/useSupabaseSync';
 import { QuizResultPhase } from './quiz/QuizResultPhase';
 import { useQuizConfig } from './QuizContext';
 import { parseDiscussionDate } from '@/lib/contentModel';
+import { mapDiscussionRow, type DiscussionRow } from '@/lib/data/discussions';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, PolarRadiusAxis } from 'recharts';
+
+type ProfileDiscussionPost = DiscussionPost & { nodeName: string; nodeColor: string };
 
 interface UserProfile {
   userName: string;
@@ -95,12 +98,16 @@ export default function ProfileModal({
         let fetchedBdsmRole = 'Switch';
         let joinedAt = '';
 
+        const profileLayout = profileData?.layout_config && typeof profileData.layout_config === 'object' && !Array.isArray(profileData.layout_config)
+          ? profileData.layout_config as { profileMeta?: { coverUrl?: unknown; gender?: unknown; bdsmRole?: unknown } }
+          : null;
+        const profileMeta = profileLayout?.profileMeta;
         if (profileData) {
           fetchedBio = profileData.bio || '';
           fetchedAvatarUrl = profileData.avatar_url || '';
-          // 從 profiles 表讀取 gender 和 bdsm_role
-          if (profileData.gender) fetchedGender = profileData.gender;
-          if (profileData.bdsm_role) fetchedBdsmRole = profileData.bdsm_role;
+          if (typeof profileMeta?.coverUrl === 'string') fetchedCoverUrl = profileMeta.coverUrl;
+          if (typeof profileMeta?.gender === 'string') fetchedGender = profileMeta.gender;
+          if (typeof profileMeta?.bdsmRole === 'string') fetchedBdsmRole = profileMeta.bdsmRole;
         }
 
         if (!fetchedBio && quizData?.content?.bio) fetchedBio = quizData.content.bio;
@@ -124,32 +131,30 @@ export default function ProfileModal({
         let quizScores = quizData?.content?.scores || null;
         let quizAiAnalysis = quizData?.content?.aiAnalysis || '';
 
-        // 查發言/留言 (使用 .in 安全查詢)
-        const { data: dbComments } = await supabase
-          .from('discussions')
-          .select('*')
-          .in('author', candidateNames);
-        
+        // 只依 author_id 讀取正式 discussions rows，避免查詢不存在的 author／timestamp 欄位。
+        const { data: dbComments } = profileData?.id
+          ? await supabase
+            .from('discussions')
+            .select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at')
+            .eq('author_id', profileData.id)
+            .is('parent_id', null)
+            .order('created_at', { ascending: false })
+            .limit(100)
+          : { data: [] as DiscussionRow[] };
+
         let totalUpvotes = 0;
-        let posts: DiscussionPost[] = [];
-        
+        let posts: ProfileDiscussionPost[] = [];
+
         if (dbComments) {
-          posts = dbComments.map(d => {
-            const n = nodesData.find(gn => gn.id === d.node_id);
-            let nodeName = n?.label || '未知節點';
-            let nodeColor = n?.color || '#E8C5C8';
-            if (d.node_id === 'lobby_chat') {
-              nodeName = '即時聊天';
-            } else if (d.node_id === 'lobby_board') {
-              nodeName = '討論交流';
-            }
-            return {
-              id: d.id, author: d.author, text: d.text, upvotes: d.upvotes || 0, timestamp: Number(d.timestamp),
-              replies: d.replies || [], emojis: d.emojis || [],
-              nodeId: d.node_id, nodeName, nodeColor: getWafuColor(nodeColor)
-            };
-          });
-          totalUpvotes = dbComments.reduce((acc, c) => acc + (c.upvotes || 0), 0);
+          posts = dbComments.map((row) => {
+            const mapped = mapDiscussionRow(row as DiscussionRow);
+            if (!mapped) return null;
+            const n = nodesData.find((gn) => gn.id === mapped.nodeId);
+            const nodeName = mapped.nodeId === 'lobby_chat' ? '即時聊天' : mapped.nodeId === 'lobby_board' ? '討論交流' : n?.label || '未知節點';
+            const nodeColor = n?.color || '#E8C5C8';
+            return { ...mapped, nodeName, nodeColor: getWafuColor(nodeColor) };
+          }).filter((post): post is ProfileDiscussionPost => post !== null);
+          totalUpvotes = posts.reduce((acc, post) => acc + post.upvotes, 0);
         }
         
         const totalComments = posts.length;
