@@ -111,7 +111,25 @@ export function useSupabaseSync() {
 
         const mindmap = mindmapResult.data?.[0];
         if (Array.isArray(mindmap?.content) && mindmap.content.length > 0) {
-          const parsedNodes = mindmap.content as GraphNode[];
+          // CMS 可能只保存部分欄位；不可讓稀疏資料覆蓋 constants 內完整的設計資產與文本。
+          const defaultsById = new Map(defaultGraphNodes.map(node => [node.id, node]));
+          const parsedNodes = (mindmap.content as GraphNode[]).map(node => {
+            const fallback = defaultsById.get(node.id);
+            return {
+              ...fallback,
+              ...node,
+              label: node.label || fallback?.label,
+              desc: node.desc || fallback?.desc,
+              intro: node.intro || fallback?.intro,
+              practice: node.practice || fallback?.practice,
+              hazard: node.hazard || fallback?.hazard,
+              first_aid: node.first_aid || fallback?.first_aid,
+              detail_text: node.detail_text || fallback?.detail_text,
+              image: node.image || fallback?.image,
+              kamonIcon: node.kamonIcon || fallback?.kamonIcon,
+              icon: node.icon || fallback?.icon,
+            } as GraphNode;
+          });
           setNodesData(parsedNodes);
           setLinksData(parsedNodes.filter(node => node.parent).map(node => ({
             source: node.parent as string,
@@ -132,10 +150,14 @@ export function useSupabaseSync() {
           const entry = imgMap[node.id] || {};
           const overrideKamon = convertGoogleDriveUrl(entry.kamon || entry.icon);
           const overrideRealistic = convertGoogleDriveUrl(entry.realistic || entry.image);
+          // 優先使用後台明確設定；沒有設定時保留節點原有設計資產，
+          // 不再用一個永遠 truthy 的通用路徑覆蓋 constants 內的專屬圖片。
+          const defaultKamon = node.kamonIcon || `/images/nodes/kamon_${node.id}.png`;
+          const defaultRealistic = node.image || `/images/nodes/realistic_${node.id}.png`;
           return {
             ...node,
-            kamonIcon: overrideKamon || `/images/nodes/kamon_${node.id}.png` || node.kamonIcon,
-            image: overrideRealistic || `/images/nodes/realistic_${node.id}.png` || node.image,
+            kamonIcon: overrideKamon || defaultKamon,
+            image: overrideRealistic || defaultRealistic,
             icon: overrideKamon || node.icon,
           };
         }));
