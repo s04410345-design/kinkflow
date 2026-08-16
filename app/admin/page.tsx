@@ -116,6 +116,7 @@ export default function AdminDashboard() {
             mindmapJson={workspace.mindmapJson}
             setMindmapJson={workspace.setMindmapJson}
             onSave={workspace.handleSave}
+            onPublish={workspace.publishNodes}
             saving={workspace.saving}
             nodeImages={workspace.nodeImages}
             setNodeImages={workspace.setNodeImages}

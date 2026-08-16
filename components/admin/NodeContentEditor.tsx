@@ -8,6 +8,7 @@ interface NodeContentEditorProps {
   mindmapJson: string;
   setMindmapJson: (json: string) => void;
   onSave: (keyName: string, data: string | object, isJson?: boolean) => Promise<void>;
+  onPublish: () => Promise<void>;
   saving: boolean;
   nodeImages: AdminNodeImages;
   setNodeImages: React.Dispatch<React.SetStateAction<AdminNodeImages>>;
@@ -16,7 +17,7 @@ interface NodeContentEditorProps {
 }
 
 export default function NodeContentEditor({ 
-  mindmapJson, setMindmapJson, onSave, saving, 
+  mindmapJson, setMindmapJson, onSave, onPublish, saving,
   nodeImages, setNodeImages, uploadingState, handleFileUpload 
 }: NodeContentEditorProps) {
   const [selectedId, setSelectedId] = useState<string>('');
@@ -111,7 +112,7 @@ export default function NodeContentEditor({
         <div>
           <h2 className="text-xl font-bold">✍️ 節點內容視覺化編輯器</h2>
           <p className="text-xs text-[#4A4238]/60 mt-1">
-            直接選擇下方節點並修改內容，這會自動同步更新右側的 JSON。修改完成後請點擊「儲存所有變更」。
+            直接選擇下方節點並修改內容；先儲存草稿，確認預覽正確後再發布到前台。
           </p>
         </div>
         <div className="flex gap-2">
@@ -126,16 +127,29 @@ export default function NodeContentEditor({
           >
             ✨ 載入完整 10 大絕美和風節點與文本
           </button>
-          <button 
-            onClick={async () => {
-              await onSave('node_images', nodeImages, false);
-              await onSave('mindmap_data', mindmapJson, true);
-            }} 
-            disabled={saving}
-            className="shrink-0 bg-[#4A4238] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-[#4A4238]/80 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-          >
-            {saving ? '儲存中...' : '💾 儲存所有變更至資料庫'}
-          </button>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <button
+              type="button"
+              onClick={async () => {
+                await onSave('node_images', nodeImages, false);
+                await onSave('mindmap_data', mindmapJson, true);
+              }}
+              disabled={saving}
+              className="shrink-0 bg-white text-[#4A4238] border border-[#D1C6B4] px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-[#F5EFE6] transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? '儲存中...' : '💾 儲存草稿'}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (confirm('確定要把目前的節點圖片與文本發布到前台嗎？')) await onPublish();
+              }}
+              disabled={saving}
+              className="shrink-0 bg-[#4A4238] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-[#4A4238]/80 transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? '處理中...' : '🚀 發布到前台'}
+            </button>
+          </div>
         </div>
         </div>
 

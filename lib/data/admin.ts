@@ -32,13 +32,14 @@ function toDiscussionPost(value: Record<string, unknown>): DiscussionPost | null
 }
 
 export async function fetchAdminCmsData(defaultNodes: GraphNode[], defaultQuizQuestions: unknown): Promise<AdminCmsData> {
-  const keys = ['mindmap_data', 'quiz_system_config', 'google_sheets_config', 'node_images'];
+  const keys = ['mindmap_data', 'mindmap_data_draft', 'quiz_system_config', 'google_sheets_config', 'node_images', 'node_images_draft'];
   const [contentResult, discussionResult] = await Promise.all([
     supabase.from('quiz_content').select('key_name,content').in('key_name', keys),
     supabase.from('discussions').select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at').limit(2000),
   ]);
   const content = new Map((contentResult.data || []).map((row) => [String(row.key_name), row.content as unknown]));
-  const mindmap = asNodes(content.get('mindmap_data'));
+  // 後台優先載入草稿；前台只讀取正式的 mindmap_data / node_images key。
+  const mindmap = asNodes(content.get('mindmap_data_draft') ?? content.get('mindmap_data'));
   const effectiveNodes = mindmap.length >= 10 ? mindmap : defaultNodes;
   const nodeNameMap: Record<string, string> = {};
   const nodeParentMap: Record<string, string> = {};
@@ -63,7 +64,7 @@ export async function fetchAdminCmsData(defaultNodes: GraphNode[], defaultQuizQu
     mindmapJson: JSON.stringify(effectiveNodes, null, 2),
     quizJson: JSON.stringify(content.get('quiz_system_config') || defaultQuizQuestions, null, 2),
     sheetConfig: asRecord(content.get('google_sheets_config')),
-    nodeImages: asRecord(content.get('node_images')) as AdminNodeImages,
+    nodeImages: asRecord(content.get('node_images_draft') ?? content.get('node_images')) as AdminNodeImages,
     nodeNameMap,
     nodeParentMap,
     nodeLevelMap,
@@ -139,6 +140,20 @@ export async function saveAdminContent(keyName: string, data: unknown, isJson = 
     return error ? { ok: false, message: error.message } : { ok: true };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : '資料格式錯誤' };
+  }
+}
+
+export async function publishNodeContent(mindmapJson: string, nodeImages: AdminNodeImages): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const nodes = JSON.parse(mindmapJson) as unknown;
+    if (!Array.isArray(nodes) || nodes.length === 0) return { ok: false, message: '節點內容不可為空。' };
+    const { error } = await supabase.from('quiz_content').upsert([
+      { key_name: 'mindmap_data', content: nodes },
+      { key_name: 'node_images', content: nodeImages },
+    ], { onConflict: 'key_name' });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '發布內容格式錯誤' };
   }
 }
 

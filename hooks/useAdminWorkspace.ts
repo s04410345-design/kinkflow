@@ -9,6 +9,7 @@ import {
   fetchAdminCmsData,
   fetchAdminLogs,
   saveAdminContent,
+  publishNodeContent,
 } from '@/lib/data/admin';
 import type { AdminNodeImages } from '@/lib/data/admin';
 import type { AdminLogEntry } from '@/lib/data/adminLogs';
@@ -60,6 +61,7 @@ export type AdminWorkspace = {
   fetchCmsData: () => Promise<void>;
   fetchStats: () => Promise<void>;
   handleSave: (keyName: string, data: unknown, isJson?: boolean) => Promise<void>;
+  publishNodes: () => Promise<void>;
   handleFileUpload: (nodeId: string, type: 'icon' | 'image', file: File) => Promise<void>;
   handleDeletePost: (postId: string | number) => Promise<void>;
   handleClearNodePosts: (nodeId: string) => Promise<void>;
@@ -183,13 +185,29 @@ export function useAdminWorkspace(adminLevel: number | null, isAuth: boolean): A
     setSaving(true);
     setMessage('');
     try {
-      const result = await saveAdminContent(keyName, data, isJson);
-      setMessage(result.ok ? '✅ 儲存成功！前台網站已同步更新。' : `❌ 儲存失敗：${result.message || ''}`);
+      const draftKey = keyName === 'mindmap_data' ? 'mindmap_data_draft' : keyName === 'node_images' ? 'node_images_draft' : keyName;
+      const result = await saveAdminContent(draftKey, data, isJson);
+      setMessage(result.ok ? '✅ 草稿已儲存；前台仍維持目前已發布版本。' : `❌ 草稿儲存失敗：${result.message || ''}`);
     } finally {
       setSaving(false);
       window.setTimeout(() => setMessage(''), 5000);
     }
   }, [adminLevel]);
+
+  const publishNodes = useCallback(async () => {
+    if (adminLevel === 3) {
+      setMessage('❌ Level 3 僅供觀看，無法發布內容。');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const result = await publishNodeContent(mindmapJson, nodeImages);
+      setMessage(result.ok ? '✅ 節點圖片與文本已發布，前台現在會顯示這個版本。' : `❌ 發布失敗：${result.message || ''}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [adminLevel, mindmapJson, nodeImages]);
 
   const handleFileUpload = useCallback(async (nodeId: string, type: 'icon' | 'image', file: File) => {
     if (!file) return;
@@ -430,6 +448,7 @@ export function useAdminWorkspace(adminLevel: number | null, isAuth: boolean): A
     fetchCmsData,
     fetchStats,
     handleSave,
+    publishNodes,
     handleFileUpload,
     handleDeletePost,
     handleClearNodePosts,
