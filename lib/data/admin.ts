@@ -2,7 +2,7 @@ import type { DiscussionPost, GraphNode } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { mapDiscussionRow, type DiscussionRow } from '@/lib/data/discussions';
 
-export type AdminNodeImages = Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string }>;
+export type AdminNodeImages = Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string; iconAlt?: string; imageAlt?: string }>;
 export type AdminLogEntry = { id: string; created_at: string; action_type: string; details: Record<string, unknown>; device_id?: string | null };
 export type AdminUser = { user_id: string; role_level: number; granted_by?: string | null; created_at: string };
 export type AuthorApplication = { user_id: string; status: 'pending' | 'approved' | 'rejected' | string; application_text: string; reviewed_by?: string | null; reviewed_at?: string | null; review_note?: string | null; created_at: string; updated_at: string };

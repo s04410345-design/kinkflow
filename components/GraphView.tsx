@@ -605,6 +605,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           const nodeImages = appData?.nodeImages || (quizConfig as any)?.nodeImages || {};
           const siteLogo = quizConfig?.globalAssets?.siteLogoUrl || "/images/logo.png";
           const nodeDictImage = nodeImages[d.id]?.kamon || nodeImages[d.id]?.icon;
+          const nodeImageAlt = nodeImages[d.id]?.iconAlt || `${d.label}家徽圖`;
           const rawImg = nodeDictImage || d.kamonIcon || d.icon || d.image;
           const imgUrl = (rawImg && typeof rawImg === 'string' && rawImg.trim()) 
             ? rawImg 
@@ -617,6 +618,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
             if (shapeType === 'drop') imgYOffset = -r * 0.15;
 
             group.append("image")
+              .attr("role", "img")
+              .attr("aria-label", nodeImageAlt)
               .attr("href", imgUrl)
               .attr("xlink:href", imgUrl)
               .attr("x", -imgSize/2)

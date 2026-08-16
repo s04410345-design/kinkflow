@@ -37,8 +37,10 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   initialLobbyTab?: 'info' | 'chat' | 'hot' | 'stats' | 'board';
 }) {
   const { globalAssets } = useQuizConfig();
-  const nodeDictImage = appData?.nodeImages?.[node.id]?.realistic || appData?.nodeImages?.[node.id]?.image;
-  const staticFallback = `/images/nodes/realistic_${node.id}.png`;
+  const nodeDictAssets = appData?.nodeImages?.[node.id];
+  const nodeDictImage = nodeDictAssets?.realistic || nodeDictAssets?.image;
+  const nodeImageAlt = nodeDictAssets?.imageAlt || `${node.label}情境圖`;
+  const staticFallback = node.id === 'bdsm' ? '/images/nodes/realistic_bdsm.png' : `/images/nodes/realistic_${node.id}.png`;
   const nodeImageToShow = (node.image && typeof node.image === 'string' && node.image.trim()) 
     ? node.image 
     : (nodeDictImage || staticFallback);
@@ -205,7 +207,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
               <img 
                 key={nodeImageToShow}
                 src={nodeImageToShow} 
-                alt={node.label} 
+                alt={nodeImageAlt}
                 onLoad={() => setImgLoaded(true)}
                 className={`w-full h-full object-cover transition-all duration-700 group-hover:scale-105 ${imgLoaded ? 'opacity-100' : 'opacity-100'}`} 
                 onError={(e) => {
@@ -241,7 +243,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
                 </button>
                 <img 
                   src={nodeImageToShow} 
-                  alt={node.label} 
+                  alt={nodeImageAlt}
                   className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl transition-transform duration-300 hover:scale-105"
                   crossOrigin="anonymous"
                 />

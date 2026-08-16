@@ -139,7 +139,7 @@ export function useSupabaseSync() {
           applyDefaultMindmap();
         }
 
-        const imgMap = (nodeImagesResult.data?.[0]?.content || {}) as Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string }>;
+        const imgMap = (nodeImagesResult.data?.[0]?.content || {}) as Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string; iconAlt?: string; imageAlt?: string }>;
         const convertGoogleDriveUrl = (url?: string): string | undefined => {
           if (!url) return url;
           const match = url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/) || url.match(/id=([a-zA-Z0-9-_]+)/);
