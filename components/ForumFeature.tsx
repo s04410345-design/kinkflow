@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DiscussionPost, GraphNode } from '@/lib/types';
-import { extractDiscussionContent, sortDiscussionPosts } from '@/lib/contentModel';
+import { extractDiscussionContent } from '@/lib/contentModel';
 import {
   createForumComment,
   createForumPost,
@@ -9,6 +9,7 @@ import {
   fetchForumComments,
   fetchPublishedForumPosts,
   formatForumDate,
+  sortForumItems,
   reportForumContent,
   updateForumComment,
   updateForumPost,
@@ -21,6 +22,8 @@ type ForumFeatureProps = {
   nodesData: GraphNode[];
   isMember?: boolean;
   currentUserId?: string | null;
+  initialPostId?: string | null;
+  onInitialPostOpened?: () => void;
 };
 
 function DiscussionMedia({ post }: { post: DiscussionPost }) {
@@ -69,7 +72,7 @@ function PostEditor({ title, body, setTitle, setBody, onSave, onCancel, saving, 
   );
 }
 
-export default function ForumFeature({ nodesData, isMember = false, currentUserId = null }: ForumFeatureProps) {
+export default function ForumFeature({ nodesData, isMember = false, currentUserId = null, initialPostId = null, onInitialPostOpened }: ForumFeatureProps) {
   const [activeNodeId, setActiveNodeId] = useState('all');
   const [livePosts, setLivePosts] = useState<ForumItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -107,8 +110,16 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
   useEffect(() => { void loadPosts(); }, [loadPosts]);
 
   const items = livePosts;
-  const visibleItems = useMemo(() => sortDiscussionPosts(activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId), sortMode), [activeNodeId, items, sortMode]);
+  const visibleItems = useMemo(() => sortForumItems(activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId), sortMode), [activeNodeId, items, sortMode]);
   const selectedPost = items.find((post) => String(post.id) === String(selectedPostId)) || null;
+
+  useEffect(() => {
+    if (!initialPostId || !items.some((post) => String(post.id) === String(initialPostId))) return;
+    setActiveNodeId('all');
+    setSortMode('hot');
+    setSelectedPostId(initialPostId);
+    onInitialPostOpened?.();
+  }, [initialPostId, items, onInitialPostOpened]);
   const selectedPostIsOwner = Boolean(currentUserId && selectedPost?.authorId && selectedPost.authorId === currentUserId);
 
   useEffect(() => {
@@ -270,7 +281,7 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
         <div className="mb-5 flex items-center justify-between rounded-2xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm"><span className="font-bold text-[#334155]">共有 {visibleItems.length} 篇可顯示討論</span>{isMember ? <button type="button" onClick={() => { setEditingPost(false); setPostFormOpen((open) => !open); }} className="rounded-xl bg-[#172033] px-4 py-2 text-xs font-bold text-white">{postFormOpen ? '收起發文' : '發表新主題'}</button> : <span className="text-[#64748B]">登入後可以發文</span>}</div>
         {isLoading && <div className="mb-5 rounded-2xl border border-[#CBD5E1] bg-white p-4 text-sm text-[#64748B]">正在載入正式討論……</div>}
         {loadError && <div role="alert" className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#FECACA] bg-[#FFF1F2] p-4 text-sm text-[#9F1239] sm:flex-row sm:items-center sm:justify-between"><span>{loadError}</span><button type="button" onClick={() => void loadPosts()} className="shrink-0 rounded-xl border border-[#FDA4AF] px-3 py-2 text-xs font-bold">重新載入</button></div>}
-        {visibleItems.length === 0 && !isLoading && !loadError ? <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有正式討論。可以先從心智圖節點開始探索。</div> : visibleItems.length > 0 ? <div className="grid gap-4 lg:grid-cols-2">{visibleItems.map((post) => { const content = extractDiscussionContent(post.text, post.title, post.body, post.media); return <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md"><div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{formatForumDate(post.timestamp)}</span></div><h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2><p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>{content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}<div className="mt-4 flex gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>👍 {post.upvotes || 0}</span><span>回覆 {post.replies?.length || 0}</span></div></button>; })}</div> : null}
+        {visibleItems.length === 0 && !isLoading && !loadError ? <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有正式討論。可以先從心智圖節點開始探索。</div> : visibleItems.length > 0 ? <div className="grid gap-4 lg:grid-cols-2">{visibleItems.map((post) => { const content = extractDiscussionContent(post.text, post.title, post.body, post.media); return <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md"><div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{formatForumDate(post.timestamp)}</span></div><h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2><p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>{content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}<div className="mt-4 flex flex-wrap gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>💬 {post.commentCount} 則留言</span><span>🔥 熱度 {Math.round(post.hotScore)}</span></div></button>; })}</div> : null}
       </div>
     </section>
   );

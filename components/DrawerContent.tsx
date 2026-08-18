@@ -14,12 +14,94 @@ import type { GraphNode, AppData, DiscussionPost } from '@/lib/types';
 import { getPostActivityScore, getWafuColor } from '@/lib/constants';
 import { parseDiscussionDate } from '@/lib/contentModel';
 import { VoteModule, Comment } from '@/components/Comment';
-import AiChatbot from '@/components/AiChatbot';
 import { useQuizConfig } from '@/components/QuizContext';
 import { useDrawerActions } from '@/hooks/useDrawerActions';
+import { fetchPublishedForumPosts, sortForumItems, type ForumItem } from '@/lib/data/forum';
+
+// ================= 節點熱門主題預覽 =================
+type ForumTopicPreviewProps = {
+  node: GraphNode;
+  rankingNode: GraphNode;
+  nodesData: GraphNode[];
+  onOpenForumPost?: (postId: string) => void;
+  onOpenForum?: () => void;
+};
+
+function ForumTopicPreview({ node, rankingNode, nodesData, onOpenForumPost, onOpenForum }: ForumTopicPreviewProps) {
+  const [topics, setTopics] = useState<ForumItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const rankingNodeIds = useMemo(() => {
+    const ids = new Set<string>([rankingNode.id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      nodesData.forEach((candidate) => {
+        if (candidate.parent && ids.has(candidate.parent) && !ids.has(candidate.id)) {
+          ids.add(candidate.id);
+          changed = true;
+        }
+      });
+    }
+    return ids;
+  }, [nodesData, rankingNode.id]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    void fetchPublishedForumPosts(nodesData)
+      .then((items) => {
+        if (!active) return;
+        setTopics(sortForumItems(items.filter((item) => item.nodeId && rankingNodeIds.has(item.nodeId)), 'hot').slice(0, 3));
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setTopics([]);
+        setLoadError(error instanceof Error ? error.message : '熱門主題暫時無法載入。');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+      }, [nodesData, rankingNodeIds]);
+
+  return (
+    <section className="animate-fade-in rounded-2xl border border-[#D1C6B4]/60 bg-white p-5 shadow-xs">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-black text-[#1A1612]">🗣️ {rankingNode.label}熱門主題（前 3）</h3>
+          <p className="mt-1 text-xs text-[#4A4238]/60">{node.id === rankingNode.id ? '本節點' : `本節點排行統一連結至「${rankingNode.label}」`}的正式討論文章，依留言與新鮮度排序。</p>
+        </div>
+        <button type="button" onClick={onOpenForum} className="shrink-0 rounded-full border border-[#172033]/20 px-3 py-1.5 text-[10px] font-black text-[#172033] transition hover:bg-[#172033] hover:text-white">發表主題</button>
+      </div>
+      {loading && <p className="mt-5 text-center text-xs font-semibold text-[#4A4238]/50">載入熱門主題中…</p>}
+      {loadError && <p className="mt-5 rounded-xl border border-[#FCD34D] bg-[#FFFBEB] p-3 text-xs font-semibold text-[#92400E]" role="alert">{loadError}</p>}
+      {!loading && !loadError && topics.length === 0 && <p className="mt-5 rounded-xl border border-dashed border-[#D1C6B4]/60 bg-[#FDFBF7] p-5 text-center text-xs font-semibold text-[#4A4238]/55">目前還沒有本節點的正式主題。</p>}
+      {!loading && !loadError && topics.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {topics.map((topic, index) => {
+            const title = topic.title || topic.body || topic.text || '未命名主題';
+            return (
+              <button key={String(topic.id)} type="button" onClick={() => onOpenForumPost?.(String(topic.id))} className="w-full rounded-xl border border-[#D1C6B4]/35 bg-[#FDFBF7] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#172033]/40 hover:shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172033] text-[10px] font-black text-white">{index + 1}</span>
+                  <span className="min-w-0 flex-1">
+                    <strong className="line-clamp-2 block text-sm font-black leading-snug text-[#1A1612]">{title}</strong>
+                    <span className="mt-1 block text-[10px] font-semibold text-[#4A4238]/55">💬 {topic.commentCount} 則留言 · 點擊閱讀完整文章 →</span>
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
 
 // ================= 資訊抽屜 =================
-export default function DrawerContent({ node, closeDrawer, userName, isGuest, appData, setAppData, onJump, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, goBack, canGoBack, initialLobbyTab }: {
+export default function DrawerContent({ node, closeDrawer, userName, isGuest, appData, setAppData, onJump, showToast, onOpenIframe, targetPostId, onOpenArticle, onOpenForumPost, onOpenForum, nodesData, goBack, canGoBack, initialLobbyTab }: {
   node: GraphNode;
   closeDrawer: () => void;
   userName: string;
@@ -31,10 +113,12 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   onOpenIframe: (url: string) => void;
   targetPostId?: string | null;
   onOpenArticle?: (title: string, content: string) => void;
+  onOpenForumPost?: (postId: string) => void;
+  onOpenForum?: () => void;
   nodesData: GraphNode[];
   goBack?: () => void;
   canGoBack?: boolean;
-  initialLobbyTab?: 'info' | 'chat' | 'hot' | 'stats' | 'board';
+  initialLobbyTab?: 'info' | 'hot' | 'stats' | 'board';
 }) {
   const { globalAssets } = useQuizConfig();
   const nodeDictAssets = appData?.nodeImages?.[node.id];
@@ -44,8 +128,8 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   const nodeImageToShow = (node.image && typeof node.image === 'string' && node.image.trim()) 
     ? node.image 
     : (nodeDictImage || staticFallback);
-  const [lobbyTab, setLobbyTab] = useState<'info' | 'chat' | 'hot' | 'stats' | 'board'>(initialLobbyTab || 'info');
-  const [nodeTab, setNodeTab] = useState<'info' | 'hot' | 'stats' | 'chat'>('info');
+  const [lobbyTab, setLobbyTab] = useState<'info' | 'hot' | 'stats' | 'board'>(initialLobbyTab || 'info');
+  const [nodeTab, setNodeTab] = useState<'info' | 'stats' | 'topics'>('info');
   const [isImgShrunk, setIsImgShrunk] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -59,13 +143,12 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     if (node.level === 0 && initialLobbyTab) setLobbyTab(initialLobbyTab);
   }, [initialLobbyTab, node.level]);
   
-  const dbKey = node.level === 0 ? (lobbyTab === 'chat' ? 'lobby_chat' : 'lobby_board') : node.id;
+  const dbKey = node.level === 0 ? 'lobby_board' : node.id;
   const rawPosts = (appData && appData.discussions && appData.discussions[dbKey]) || [];
   
-  // 計算保留機制與熱門
+  // 大廳熱門留言固定取前 10，節點專題則改由正式 forum_posts 顯示。
   const hotLimit = node.level === 0 ? 10 : node.level === 1 ? 5 : 3;
-  const isChatLobby = node.level === 0 && lobbyTab === 'chat';
-  const sortedPostsForHot = isChatLobby ? [] : [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
+  const sortedPostsForHot = [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
   const hotPostIds = new Set(sortedPostsForHot.slice(0, hotLimit).map(p => p.id));
 
   const [now] = useState(() => Date.now());
@@ -77,6 +160,17 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   });
 
   const childNodes = nodesData.filter(n => n.parent === node.id);
+  const nodeById = useMemo(() => new Map(nodesData.map(item => [item.id, item])), [nodesData]);
+  const rankingRootNode = useMemo(() => {
+    if (node.level === 0) return node;
+    let current = node;
+    while (current.parent) {
+      const parent = nodeById.get(current.parent);
+      if (!parent || Number(parent.level) <= 1) return parent || current;
+      current = parent;
+    }
+    return current;
+  }, [node, nodeById]);
 
   const globalStatsSummary = useMemo(() => {
     return (nodesData || []).map(n => {
@@ -92,7 +186,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   const lastSubmitRef = useRef(0);
   // 自動捲動到最新留言
   useEffect(() => {
-    if (chatEndRef.current && ((node.level > 0 && nodeTab === 'chat') || (node.level === 0 && (lobbyTab === 'chat' || lobbyTab === 'board')))) {
+    if (chatEndRef.current && node.level === 0 && lobbyTab === 'board') {
       requestAnimationFrame(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
       });
@@ -117,8 +211,8 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   useEffect(() => {
     if (targetPostId && !hasScrolled) {
       setTimeout(() => {
-        if (nodeTab !== 'chat') setNodeTab('chat');
-        if (lobbyTab !== 'chat' && node.level === 0) setLobbyTab('chat');
+        if (node.level > 0) setNodeTab('topics');
+        if (node.level === 0) setLobbyTab('board');
       }, 0);
       
       const timer = setTimeout(() => {
@@ -136,16 +230,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     }
   }, [targetPostId, nodeTab, lobbyTab, node.level, hasScrolled]);
 
-  const {
-    addPost,
-    handleDeletePost,
-    addReply,
-    toggleReplyUpvote,
-    addReplyEmoji,
-    toggleUpvote,
-    addEmoji,
-    castVote,
-  } = useDrawerActions({
+  const { castVote, handleDeletePost } = useDrawerActions({
     node,
     dbKey,
     posts,
@@ -155,11 +240,6 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     setAppData,
     showToast,
   });
-
-  const lobbyPosts = node.level === 0 ? [
-    ...(appData.discussions['lobby_chat']||[]).map((p: DiscussionPost) => ({...p, nodeName: '即時聊天', nodeId: 'lobby_chat'})),
-    ...(appData.discussions['lobby_board']||[]).map((p: DiscussionPost) => ({...p, nodeName: '討論交流', nodeId: 'lobby_board'}))
-  ] : posts.map((p: DiscussionPost) => ({...p, nodeName: node.label, nodeId: dbKey}));
 
   const getDescendantNodes = (startNodeId: string): GraphNode[] => {
     let result: GraphNode[] = [];
@@ -171,10 +251,11 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
     return result;
   };
 
-  const currentAndDescendantNodes = [node, ...getDescendantNodes(node.id)];
-  const hotPostsLimit = node.level === 0 ? 20 : node.level === 1 ? 10 : node.level === 2 ? 5 : 3;
+  // 排行統一歸屬於一階節點；根節點仍代表全站排行。
+  const rankingScopeNodes = [rankingRootNode, ...getDescendantNodes(rankingRootNode.id)];
+  const hotPostsLimit = rankingRootNode.level === 0 ? 10 : 10;
 
-  const allHotPosts = currentAndDescendantNodes.flatMap(n => {
+  const allHotPosts = rankingScopeNodes.flatMap(n => {
     const key = n.level === 0 ? 'lobby_board' : n.id;
     return (appData.discussions[key] || []).map((p: DiscussionPost) => ({
       ...p,
@@ -265,7 +346,6 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
         {node.level === 0 && (
           <div className="flex gap-3 mt-4 border-b border-[#D1C6B4]/40 overflow-x-auto no-scrollbar">
             <button onClick={() => setLobbyTab('info')} className={`pb-2 text-sm font-bold flex items-center gap-1 shrink-0 ${lobbyTab === 'info' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>📖 知識百科</button>
-            <button onClick={() => setLobbyTab('chat')} className={`pb-2 text-sm font-bold flex items-center gap-1 shrink-0 ${lobbyTab === 'chat' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>💬 即時聊天</button>
             <button onClick={() => setLobbyTab('hot')} className={`pb-2 text-sm font-bold flex items-center gap-1 shrink-0 ${lobbyTab === 'hot' ? 'text-[#D9B650] border-b-2 border-[#D9B650]' : 'text-[#4A4238]/70 hover:text-[#D9B650]'}`}>🔥 熱門排行</button>
             <button onClick={() => setLobbyTab('stats')} className={`pb-2 text-sm font-bold flex items-center gap-1 shrink-0 ${lobbyTab === 'stats' ? 'text-[#15803D] border-b-2 border-[#15803D]' : 'text-[#4A4238]/70 hover:text-[#15803D]'}`}>📊 全站喜好統計</button>
           </div>
@@ -275,7 +355,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
           <div className="flex gap-4 mt-4 border-b border-[#D1C6B4]/40 overflow-x-auto no-scrollbar">
             <button onClick={() => setNodeTab('info')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'info' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>📖 知識百科</button>
             <button onClick={() => setNodeTab('stats')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'stats' ? 'text-[#15803D] border-b-2 border-[#15803D]' : 'text-[#4A4238]/70 hover:text-[#15803D]'}`}>📊 喜好投票</button>
-            <button onClick={() => setNodeTab('chat')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'chat' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>💬 討論交流</button>
+            <button onClick={() => setNodeTab('topics')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'topics' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>🗣️ 熱門主題</button>
           </div>
         )}
       </div>
@@ -284,7 +364,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
         {/* 大廳熱門排行：獨立渲染，不走 space-y-6 容器 */}
         {(node.level === 0 && lobbyTab === 'hot') && (
           <div className="animate-fade-in">
-            <h3 className="text-sm font-bold mb-4 mt-2">🔥 全平台熱門討論排行（前{hotPostsLimit}名）</h3>
+            <h3 className="text-sm font-bold mb-4 mt-2">🔥 {rankingRootNode.level === 0 ? '全平台' : rankingRootNode.label}熱門討論排行（前{hotPostsLimit}名）</h3>
             {allHotPosts.length === 0 ? (
               <div className="text-center text-sm text-[#4A4238]/40 dark:text-[#E5DCD0]/40 py-12 border border-dashed border-[#D1C6B4]/40 rounded-xl bg-white">
                 目前還沒有熱門討論，快來第一個留言吧！
@@ -421,81 +501,20 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
               </div>
             )}
 
-            {/* 討論板：子節點與大廳聊天/討論 */}
-            {((node.level > 0 && nodeTab === 'chat') || (node.level === 0 && (lobbyTab === 'chat' || lobbyTab === 'board'))) && (
-              <div className="flex flex-col flex-1 h-full animate-fade-in">
-                <div className="flex items-center gap-2 mb-4 mt-2 shrink-0">
-                  <h3 className="text-sm font-bold">{node.level === 0 ? (lobbyTab === 'chat' ? '💬 即時聊天' : '🗣️ 討論交流') : '💬 討論交流'}</h3>
-                  <span className="text-[10px] bg-[#E8C5C8]/20 border border-[#E8C5C8]/40 text-[#4A4238] font-semibold px-2 py-0.5 rounded-full">活躍留言將延長保留時間</span>
-                </div>
-                <div className="space-y-4">
-                  {posts.length === 0 ? (
-                    <div className="text-center text-sm text-[#4A4238] font-semibold py-8 border border-dashed border-[#D1C6B4]/60 rounded-xl bg-white/80">來當第一個分享的人吧！</div>
-                  ) : (
-                    posts.map((post: DiscussionPost) => (
-                      <Comment 
-                        key={post.id} post={post} 
-                        hasUpvoted={appData.userUpvotes && appData.userUpvotes[post.id]}
-                        userEmojis={appData.userEmojis || {}}
-                        allowReply={!(node.level === 0 && lobbyTab === 'chat')}
-                        onReply={(text: string) => addReply(post.id, text)}
-                        onUpvote={() => toggleUpvote(post.id)}
-                        onEmoji={(emoji: string) => addEmoji(post.id, emoji)}
-                        onReplyUpvote={(postId: string | number, replyId: string | number) => toggleReplyUpvote(postId, replyId)}
-                        onReplyEmoji={(postId: string | number, replyId: string | number, emoji: string) => addReplyEmoji(postId, replyId, emoji)}
-                        onDelete={handleDeletePost}
-                        currentUserName={userName}
-                      />
-                    ))
-                  )}
-                  <div ref={chatEndRef} className="h-1" />
-                </div>
-              </div>
+            {node.level > 0 && nodeTab === 'topics' && (
+              <ForumTopicPreview
+                node={node}
+                rankingNode={rankingRootNode}
+                nodesData={nodesData}
+                onOpenForumPost={onOpenForumPost}
+                onOpenForum={onOpenForum}
+              />
             )}
           </div>
         )}
       </div>
 
-      {((node.level > 0 && nodeTab === 'chat') || (node.level === 0 && (lobbyTab === 'chat' || lobbyTab === 'board'))) && (
-        <div className="shrink-0 border-t border-[#D1C6B4]/20 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] animate-slide-up sm:p-4">
-          <form onSubmit={(e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); const form = e.currentTarget; const input = form.elements.namedItem('msg') as HTMLTextAreaElement; const v = input.value.trim(); if(v){ addPost(v); input.value=''; input.style.height = 'auto'; } }} className="flex gap-2 items-end">
-            <button 
-              type="button" 
-              onClick={() => {
-                const imgUrl = prompt("請輸入欲夾帶的圖片網址 (Image URL)：");
-                if (imgUrl && imgUrl.trim()) {
-                  const form = document.querySelector('form textarea[name="msg"]') as HTMLTextAreaElement;
-                  if (form) {
-                    form.value = (form.value ? form.value + '\n' : '') + `![圖片](${imgUrl.trim()})`;
-                    form.focus();
-                  }
-                }
-              }}
-              className="bg-[#FDFBF7] border border-[#D1C6B4]/60 h-[40px] text-[#4A4238] font-bold px-3 rounded-xl text-xs hover:bg-[#E8C5C8]/20 transition-all shrink-0 flex items-center gap-1 shadow-xs"
-              title="插入圖片"
-            >
-              📷 圖片
-            </button>
-            <textarea 
-              name="msg" 
-              rows={1}
-              placeholder={node.level===0 ? '發言...' : '發表避雷、心得或夾帶圖片...'} 
-              className="flex-1 bg-[#FDFBF7] border border-[#D1C6B4]/60 rounded-xl px-4 py-2 text-sm text-[#1A1612] font-medium focus:outline-none focus:border-[#C5D4B6] focus:ring-1 focus:ring-[#C5D4B6] transition-all resize-none min-h-[40px] max-h-[120px] scrollbar-thin"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  e.currentTarget.form?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-                }
-              }}
-              onChange={(e) => {
-                e.target.style.height = 'auto';
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
-              }}
-            />
-            <button type="submit" className="bg-[#4A4238] h-[40px] text-white px-5 rounded-xl text-sm font-bold hover:bg-[#4A4238]/80 hover:-translate-y-0.5 hover:shadow-md active:scale-95 transition-all shadow-sm shrink-0 whitespace-nowrap">✈️ 發送</button>
-          </form>
-        </div>
-      )}
+
     </div>
   );
 }

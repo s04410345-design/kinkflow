@@ -122,6 +122,7 @@ export default function AdminDashboard() {
             setNodeImages={workspace.setNodeImages}
             uploadingState={workspace.uploadingState}
             handleFileUpload={workspace.handleFileUpload}
+            preferredNodeId="community_safety"
           />
         ))}
 

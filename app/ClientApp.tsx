@@ -33,6 +33,7 @@ import { removeGuestName } from '@/lib/persistence/appStorage';
 import { formatGuestName, saveGuestName } from '@/lib/auth/identity';
 import { QuizConfigContext } from '@/components/QuizContext';
 import StyleConfigModal from '@/components/StyleConfigModal';
+import LobbyChatPanel from '@/components/LobbyChatPanel';
 import { parseDiscussionDate } from '@/lib/contentModel';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -65,6 +66,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
   const [targetPostId, setTargetPostId] = useState<string | null>(null);
+  const [targetForumPostId, setTargetForumPostId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginInput, setLoginInput] = useState('');
@@ -152,12 +154,22 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   }, [handleNodeClick]);
 
   const openLobbyChatDrawer = useCallback(() => {
-    const lobbyNode = nodesData.find((node) => node.id === 'bdsm') || defaultGraphNodes.find((node) => node.id === 'bdsm');
-    if (!lobbyNode) return;
-    setActiveTab('graph');
     setOpenLobbyChat(true);
-    handleNodeClick(lobbyNode);
-  }, [handleNodeClick, nodesData]);
+  }, []);
+
+  const openForum = useCallback(() => {
+    setOpenLobbyChat(false);
+    setSelectedNode(null);
+    setTargetForumPostId(null);
+    setActiveTab('forum');
+  }, []);
+
+  const openForumPost = useCallback((postId: string) => {
+    setOpenLobbyChat(false);
+    setSelectedNode(null);
+    setTargetForumPostId(postId);
+    setActiveTab('forum');
+  }, []);
 
   // 處理手機實體返回鍵 (History API)
   useEffect(() => {
@@ -586,7 +598,10 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           onOpenArticle={(title, content) => setArticleModal({ title, content })}
           goBack={goBackNode}
           canGoBack={nodeHistory.length > 0}
-          initialLobbyTab={openLobbyChat ? 'chat' : undefined}
+          onOpenForumPost={openForumPost}
+          onOpenForum={openForum}
+          targetForumPostId={targetForumPostId}
+          onForumPostOpened={() => setTargetForumPostId(null)}
           userId={userId}
           onBackToNode={(nodeId) => {
             setActiveTab('graph');
@@ -626,7 +641,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       {showAuthModal && <AuthModal onClose={() => { setShowAuthModal(false); setAuthMode('login'); }} onLoginSuccess={() => setShowAuthModal(false)} defaultMode={authMode} />}
 
       {/* Profile Modal */}
-      {showProfileModal && <ProfileModal userName={userName!} userId={userId} isGuest={isGuest} onNameChange={setUserName} onClose={() => setShowProfileModal(false)} onJump={(nodeId, postId) => {
+      {showProfileModal && <ProfileModal userName={userName!} userId={userId} isGuest={isGuest} isOwner={!isGuest} onNameChange={setUserName} onClose={() => setShowProfileModal(false)} onJump={(nodeId, postId) => {
         const actualNodeId = (nodeId === 'lobby_chat' || nodeId === 'lobby_board') ? 'BDSM' : nodeId;
         handleNodeClick(nodesData.find(n => n.id === actualNodeId) || null, postId);
       }} />}
@@ -679,15 +694,17 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
         </div>
       )}
 
-      {/* 穩定的大廳聊天固定入口：不依賴 SVG 節點座標或動畫元素 */}
+      {/* 左側大廳聊天入口：未展開時位於小精靈下方且彼此錯開；展開後允許小精靈覆蓋聊天面板 */}
       <button
         type="button"
-        onClick={openLobbyChatDrawer}
-        className="fixed bottom-4 right-4 z-40 rounded-full border-2 border-white bg-[#172033] px-4 py-3 text-sm font-black text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-[#334155] active:scale-95"
-        aria-label="開啟大廳即時聊天"
+        onClick={() => { if (openLobbyChat) setOpenLobbyChat(false); else openLobbyChatDrawer(); }}
+        className="fixed bottom-4 left-4 z-40 rounded-full border-2 border-white bg-[#172033] px-4 py-3 text-sm font-black text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-[#334155] active:scale-95"
+        aria-label={openLobbyChat ? '關閉大廳即時聊天' : '開啟大廳即時聊天'}
       >
-        💬 大廳聊天
+        {openLobbyChat ? '✕ 關閉聊天' : '💬 大廳聊天'}
       </button>
+
+      {openLobbyChat && <LobbyChatPanel onClose={() => setOpenLobbyChat(false)} />}
 
       {/* 小精靈懸浮按鈕 + 聊天面板 */}
       {userName && (
@@ -703,7 +720,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           {/* 懸浮按鈕 */}
           <button
             onClick={() => setSpriteMode(spriteMode === 0 ? 1 : 0)}
-            className={`fixed bottom-4 left-4 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl transition-all hover:scale-110 active:scale-95 ${spriteMode > 0 ? 'bg-[#4A4238] text-white rotate-45' : 'bg-gradient-to-br from-[#E8C5C8] to-[#C5D4B6] text-white'}`}
+            className={`fixed bottom-20 left-4 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-2xl transition-all hover:scale-110 active:scale-95 ${spriteMode > 0 ? 'bg-[#4A4238] text-white rotate-45' : 'bg-gradient-to-br from-[#E8C5C8] to-[#C5D4B6] text-white'}`}
             title="小精靈"
           >
             {spriteMode > 0 ? '✕' : '✨'}

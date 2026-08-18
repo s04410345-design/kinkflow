@@ -55,6 +55,7 @@ interface NodeContentEditorProps {
   setNodeImages: Dispatch<SetStateAction<AdminNodeImages>>;
   uploadingState: Record<string, boolean>;
   handleFileUpload: (nodeId: string, type: ImageKind, file: File) => Promise<void>;
+  preferredNodeId?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -204,8 +205,9 @@ export default function NodeContentEditor({
   setNodeImages,
   uploadingState,
   handleFileUpload,
+  preferredNodeId = 'bdsm',
 }: NodeContentEditorProps) {
-  const [selectedId, setSelectedId] = useState('bdsm');
+  const [selectedId, setSelectedId] = useState(preferredNodeId);
   const nodes = useMemo(() => parseNodes(mindmapJson), [mindmapJson]);
 
   const currentNode = useMemo(
@@ -295,7 +297,8 @@ export default function NodeContentEditor({
   const drawerSrc = currentNode ? imageSource(currentNode, nodeImages, 'image') : '';
   const iconAlt = currentNode ? imageAlt(currentNode, nodeImages, 'icon') : '';
   const drawerAlt = currentNode ? imageAlt(currentNode, nodeImages, 'image') : '';
-  const selectedIsLobby = currentNode?.id === 'bdsm';
+  const selectedIsTemplate = currentNode?.id === preferredNodeId;
+  const templateLabel = preferredNodeId === 'community_safety' ? 'community_safety 第二節點樣板' : 'BDSM 大廳樣板';
 
   return (
     <div className="rounded-2xl border border-[#D1C6B4]/30 bg-white/90 p-4 shadow-sm sm:p-6">
@@ -367,9 +370,9 @@ export default function NodeContentEditor({
         <div className="min-w-0 flex-1 space-y-5 rounded-xl border border-[#D1C6B4]/30 bg-[#FDFBF7] p-4 sm:p-6">
           {currentNode ? (
             <>
-              {selectedIsLobby && (
+              {selectedIsTemplate && (
                 <div className="rounded-xl border border-[#E8C5C8] bg-[#E8C5C8]/20 px-4 py-3 text-sm text-[#4A4238]">
-                  <strong>BDSM 大廳樣板</strong>：目前預設圖片會使用 `/images/nodes/kamon_bdsm.png` 與 `/images/nodes/realistic_bdsm.png`；前台只會讀取已發布版本。
+                  <strong>{templateLabel}</strong>：目前節點會沿用通用圖片、Alt text、即時預覽與草稿／發布流程；前台只會讀取已發布版本。
                 </div>
               )}
 

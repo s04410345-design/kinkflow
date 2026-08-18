@@ -17,7 +17,7 @@ import DrawerContent from '@/components/DrawerContent';
 import { useQuizConfig } from '@/components/QuizContext';
 
 // ================= 網絡圖視圖 =================
-export default function GraphView({ onNodeClick, selectedNode, closeDrawer, userName, isGuest, appData, setAppData, showToast, onOpenIframe, targetPostId, onOpenArticle, nodesData, linksData, goBack, canGoBack, isEditMode, onNodeDragEnd, initialLobbyTab }: {
+export default function GraphView({ onNodeClick, selectedNode, closeDrawer, userName, isGuest, appData, setAppData, showToast, onOpenIframe, targetPostId, onOpenArticle, onOpenForumPost, onOpenForum, nodesData, linksData, goBack, canGoBack, isEditMode, onNodeDragEnd, initialLobbyTab }: {
   onNodeClick: (node: GraphNode, postId?: string) => void;
   selectedNode: GraphNode | null;
   closeDrawer: () => void;
@@ -29,13 +29,15 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
   onOpenIframe: (url: string) => void;
   targetPostId: string | null;
   onOpenArticle: (title: string, content: string) => void;
+  onOpenForumPost?: (postId: string) => void;
+  onOpenForum?: () => void;
   nodesData: GraphNode[];
   linksData: GraphLink[];
   goBack?: () => void;
   canGoBack?: boolean;
   isEditMode?: boolean;
   onNodeDragEnd?: (id: string, fx: number, fy: number) => void;
-  initialLobbyTab?: 'info' | 'chat' | 'hot' | 'stats' | 'board';
+  initialLobbyTab?: 'info' | 'hot' | 'stats' | 'board';
 }) {
   const quizConfig = useQuizConfig();
   const nodeImages = appData?.nodeImages || (quizConfig as any)?.nodeImages || {};
@@ -59,11 +61,11 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
     if (expandedNodes.size > 1) {
       setExpandedNodes(new Set(['bdsm']));
       newScale = 1.0; // 放大剛好能看到大廳與下一層
-      targetY = 150; // 中心點放在大廳與第一層節點之間
+      targetY = 0; // 長條樹的根節點位於主幹起點
     } else {
       setExpandedNodes(new Set(nodesData.map(n => n.id)));
-      newScale = 0.38; // 適度縮小包含所有節點與卷軸
-      targetY = 550; // 卷軸的視覺中心
+      newScale = 0.5; // 展開多階層後保留足夠閱讀空間
+      targetY = 0; // 以長條樹中心線為視覺基準
     }
     const rootNode = nodesData.find(n => n.id === 'bdsm');
     if (rootNode) handlePanToNode(rootNode, newScale, targetY);
@@ -137,7 +139,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
     }
   }, [selectedNode?.id, targetPostId, nodesData]);
 
-  // ================= 節點座標計算 (由上往下道路地圖) =================
+  // ================= 節點座標計算（左到右長條多階層樹） =================
   const staticPositions = useMemo(() => {
     if (nodesData.length === 0) return {};
     try {
@@ -148,43 +150,18 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           if (d.id === 'bdsm') return undefined;
           return (d.parent && idSet.has(d.parent)) ? d.parent : 'bdsm';
         })(nodesData);
-      
-      const getColumnId = (d: any) => {
-         let curr = d;
-         while(curr && curr.depth > 1) curr = curr.parent;
-         return curr ? curr.id : 'bdsm';
+      const layoutRoot = d3.tree<GraphNode>().nodeSize([180, 360])(root);
+      const rootY = layoutRoot.x;
+
+      const getColumnId = (d: d3.HierarchyPointNode<GraphNode>): string => {
+        let current: d3.HierarchyPointNode<GraphNode> = d;
+        while (current.parent && current.depth > 1) current = current.parent;
+        return current.id || 'bdsm';
       };
-      
-      // 圓心放射心智圖 (Radial Mindmap Layout) 幾何算法
-      const level1Children = (root.children || []);
-      const count = level1Children.length;
 
-      const nodesArr = root.descendants().map((d, index) => {
-        let tx = 0;
-        let ty = 0;
-
-        if (d.depth === 0) {
-          // 根節點（BDSM大廳）固定在圓心正中央
-          tx = 0;
-          ty = 0;
-        } else if (d.depth === 1) {
-          // Level 1 子節點依據角度均勻散發，沿著 410px 的圓周圍繞在四周，呈現大氣開闊的圓心放射
-          const childIndex = level1Children.findIndex(child => child.id === d.id);
-          const angle = (childIndex / (count || 1)) * 2 * Math.PI - Math.PI / 2; // 從頂部 12 點鐘方向開始順時針散發
-          const radius = 410;
-          tx = Math.cos(angle) * radius;
-          ty = Math.sin(angle) * radius;
-        } else {
-          // Level 2+ 更深層節點沿著父節點的方向繼續向外放射
-          const parentNode = d.parent;
-          const parentIndex = level1Children.findIndex(child => child.id === (parentNode ? parentNode.id : ''));
-          const baseAngle = (parentIndex >= 0 ? parentIndex / (count || 1) : 0) * 2 * Math.PI - Math.PI / 2;
-          const offsetAngle = ((index % 3) - 1) * (Math.PI / 8);
-          const radius = 620;
-          tx = Math.cos(baseAngle + offsetAngle) * radius;
-          ty = Math.sin(baseAngle + offsetAngle) * radius;
-        }
-
+      const nodesArr = layoutRoot.descendants().map(d => {
+        const tx = d.y;
+        const ty = d.x - rootY;
         return {
           ...d.data,
           id: d.id,
@@ -195,12 +172,13 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           fx: d.data.fx,
           fy: d.data.fy,
           radius: d.data.radius || (d.depth === 0 ? 50 : 38),
-          depth: d.depth
+          depth: d.depth,
+          colId: getColumnId(d),
         };
       });
 
-      // 產生交叉連線 (crossLinks)
-      const crossLinks: any[] = [];
+      // 產生交叉連線（crossLinks）
+      const crossLinks: Array<{ source: string; target: string }> = [];
       nodesData.forEach(node => {
         if (node.crossLinks && Array.isArray(node.crossLinks)) {
           node.crossLinks.forEach(targetId => {
@@ -211,16 +189,16 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
         }
       });
 
-      const pos: Record<string, {x: number, y: number, depth?: number}> = {};
+      const pos: Record<string, { x: number; y: number; depth?: number; colId?: string }> = {};
       nodesArr.forEach(n => {
         if (n.id) {
-          pos[n.id] = { x: n.targetX, y: n.targetY, depth: n.depth };
+          pos[n.id] = { x: n.targetX, y: n.targetY, depth: n.depth, colId: n.colId };
         }
       });
-      
+
       return { pos, crossLinks };
-    } catch (e) {
-      console.error(e);
+    } catch (error: unknown) {
+      console.error('長條心智圖座標計算失敗', error);
       return { pos: {}, crossLinks: [] };
     }
   }, [nodesData]);
@@ -260,9 +238,9 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
       let initOffsetX = width / 2;
       // 手機版預留頂部導覽與底部操作區，避免心智圖垂直偏移到可視區外。
       let initOffsetY = isMobileViewport ? height * 0.46 : height / 2;
-      // Level 1 節點半徑約 410px；手機版依視窗寬度動態縮小，確保左右節點與標籤不被裁切。
-      const mobileScale = Math.min(0.52, Math.max(0.38, (width - 24) / 920));
-      const initScale = isMobileViewport ? mobileScale : 0.75;
+      // 長條樹的水平間距約 360px；手機版先聚焦根節點與第一層，後續以縮放查看深層節點。
+      const mobileScale = Math.min(0.62, Math.max(0.42, (width - 24) / 760));
+      const initScale = isMobileViewport ? mobileScale : 0.72;
       const initialTransform = d3.zoomIdentity.translate(initOffsetX, initOffsetY).scale(initScale);
       
       transformRef.current = initialTransform;
@@ -355,8 +333,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           const sy = staticPositions?.pos?.[(d.source as any).id || d.source as string]?.y || 0;
           const tx = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.x || 0;
           const ty = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.y || 0;
-          const dx = tx - sx, dy = ty - sy;
-          return `M${sx},${sy} Q${sx + dx/2 + dy*0.15},${sy + dy/2 - dx*0.15} ${tx},${ty}`;
+          const dx = tx - sx;
+          return `M${sx},${sy} C${sx + dx * 0.45},${sy} ${tx - dx * 0.45},${ty} ${tx},${ty}`;
         })
         .style("filter", "url(#thick-brush)")
         .call(e => e.transition().duration(800).attr("stroke-opacity", 0.9)),
@@ -365,8 +343,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           const sy = staticPositions?.pos?.[(d.source as any).id || d.source as string]?.y || 0;
           const tx = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.x || 0;
           const ty = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.y || 0;
-          const dx = tx - sx, dy = ty - sy;
-          return `M${sx},${sy} Q${sx + dx/2 + dy*0.15},${sy + dy/2 - dx*0.15} ${tx},${ty}`;
+          const dx = tx - sx;
+          return `M${sx},${sy} C${sx + dx * 0.45},${sy} ${tx - dx * 0.45},${ty} ${tx},${ty}`;
       }),
       exit => exit.transition().duration(400).attr("stroke-opacity", 0).remove()
     );
@@ -741,6 +719,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
               onOpenIframe={onOpenIframe}
               targetPostId={targetPostId}
               onOpenArticle={onOpenArticle}
+              onOpenForumPost={onOpenForumPost}
+              onOpenForum={onOpenForum}
               onJump={(nid, pid) => {
                 const targetNode = (nodesData.length > 0 ? nodesData : graphNodes).find(n => n.id === nid);
                 if (targetNode) {

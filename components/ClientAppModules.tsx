@@ -25,9 +25,13 @@ type ClientAppModulesProps = {
   onOpenIframe: (url: string | null) => void;
   targetPostId: string | null;
   onOpenArticle: (title: string, content: string) => void;
+  onOpenForumPost: (postId: string) => void;
+  onOpenForum: () => void;
+  targetForumPostId: string | null;
+  onForumPostOpened: () => void;
   goBack: () => void;
   canGoBack: boolean;
-  initialLobbyTab?: 'info' | 'chat' | 'hot' | 'stats' | 'board';
+  initialLobbyTab?: 'info' | 'hot' | 'stats' | 'board';
   userId: string | null;
   onBackToNode: (nodeId: string) => void;
   onCancelToGraph: () => void;
@@ -50,6 +54,10 @@ export default function ClientAppModules({
   onOpenIframe,
   targetPostId,
   onOpenArticle,
+  onOpenForumPost,
+  onOpenForum,
+  targetForumPostId,
+  onForumPostOpened,
   goBack,
   canGoBack,
   initialLobbyTab,
@@ -74,6 +82,8 @@ export default function ClientAppModules({
           onOpenIframe={onOpenIframe}
           targetPostId={targetPostId}
           onOpenArticle={onOpenArticle}
+          onOpenForumPost={onOpenForumPost}
+          onOpenForum={onOpenForum}
           nodesData={nodesData}
           linksData={linksData}
           goBack={goBack}
@@ -94,7 +104,7 @@ export default function ClientAppModules({
     )}
     {activeTab === 'forum' && (
       <ErrorBoundary moduleName="討論版">
-        <ForumFeature nodesData={effectiveNodes} isMember={!isGuest && Boolean(userId)} currentUserId={userId} />
+        <ForumFeature nodesData={effectiveNodes} isMember={!isGuest && Boolean(userId)} currentUserId={userId} initialPostId={targetForumPostId} onInitialPostOpened={onForumPostOpened} />
       </ErrorBoundary>
     )}
   </>;

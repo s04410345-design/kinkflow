@@ -7,6 +7,23 @@ function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
 }
 
+const visibilityKeys = ['cover', 'bio', 'identity', 'stats', 'hotPosts', 'latestPosts', 'quizResult', 'radar'] as const;
+type VisibilityKey = typeof visibilityKeys[number];
+
+function normalizeVisibility(value: unknown, fallback: JsonRecord = {}): Record<VisibilityKey, boolean> {
+  const incoming = asRecord(value);
+  return visibilityKeys.reduce((result, key) => {
+    const incomingValue = incoming[key];
+    const fallbackValue = fallback[key];
+    result[key] = typeof incomingValue === 'boolean'
+      ? incomingValue
+      : typeof fallbackValue === 'boolean'
+        ? fallbackValue
+        : true;
+    return result;
+  }, {} as Record<VisibilityKey, boolean>);
+}
+
 export async function POST(req: Request) {
   try {
     const auth = await requireUser(req);
@@ -24,6 +41,7 @@ export async function POST(req: Request) {
     const bdsmRole = typeof body.bdsmRole === 'string' ? body.bdsmRole.slice(0, 80) : null;
     const editAvatarUrl = typeof body.editAvatarUrl === 'string' ? body.editAvatarUrl.slice(0, 2048) : null;
     const editCoverUrl = typeof body.editCoverUrl === 'string' ? body.editCoverUrl.slice(0, 2048) : null;
+    const requestedVisibility = body.visibility;
 
     if (!targetName || targetName.length > 80) {
       return NextResponse.json({ error: 'Name must be between 1 and 80 characters' }, { status: 400 });
@@ -44,6 +62,7 @@ export async function POST(req: Request) {
 
     const currentLayout = asRecord(currentProfile.layout_config);
     const currentMeta = asRecord(currentLayout.profileMeta);
+    const visibility = normalizeVisibility(requestedVisibility, asRecord(currentMeta.visibility));
     const layoutConfig = {
       ...currentLayout,
       profileMeta: {
@@ -51,6 +70,7 @@ export async function POST(req: Request) {
         coverUrl: editCoverUrl,
         gender,
         bdsmRole,
+        visibility,
       },
     };
 
