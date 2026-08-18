@@ -4,9 +4,11 @@ import type { GraphNode, GraphLink, AppData, VoteStats } from '@/lib/types';
 import { parseDiscussionDate, VOTE_TYPES, type VoteType } from '@/lib/contentModel';
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
 import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
+import { fetchUserStyleConfig } from '@/lib/data/adminSettings';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 
 const INITIALIZATION_FALLBACK_MS = 8_000;
+const SUPPORTED_THEMES = new Set(['morandi', 'sakura', 'ukiyo', 'moonlight']);
 
 type QueryResult<T> = {
   data: T | null;
@@ -62,7 +64,7 @@ async function runQuery<T>(label: string, request: PromiseLike<QueryResult<T>>):
   }
 }
 
-export function useSupabaseSync() {
+export function useSupabaseSync(userId?: string | null, userName?: string | null) {
   const [appData, setAppData] = useState<AppData>(initialAppData);
   const [nodesData, setNodesData] = useState<GraphNode[]>(defaultGraphNodes);
   const [linksData, setLinksData] = useState<GraphLink[]>(defaultGraphLinks);
@@ -111,7 +113,25 @@ export function useSupabaseSync() {
 
         const mindmap = mindmapResult.data?.[0];
         if (Array.isArray(mindmap?.content) && mindmap.content.length > 0) {
-          const parsedNodes = mindmap.content as GraphNode[];
+          // CMS 可能只保存部分欄位；不可讓稀疏資料覆蓋 constants 內完整的設計資產與文本。
+          const defaultsById = new Map(defaultGraphNodes.map(node => [node.id, node]));
+          const parsedNodes = (mindmap.content as GraphNode[]).map(node => {
+            const fallback = defaultsById.get(node.id);
+            return {
+              ...fallback,
+              ...node,
+              label: node.label || fallback?.label,
+              desc: node.desc || fallback?.desc,
+              intro: node.intro || fallback?.intro,
+              practice: node.practice || fallback?.practice,
+              hazard: node.hazard || fallback?.hazard,
+              first_aid: node.first_aid || fallback?.first_aid,
+              detail_text: node.detail_text || fallback?.detail_text,
+              image: node.image || fallback?.image,
+              kamonIcon: node.kamonIcon || fallback?.kamonIcon,
+              icon: node.icon || fallback?.icon,
+            } as GraphNode;
+          });
           setNodesData(parsedNodes);
           setLinksData(parsedNodes.filter(node => node.parent).map(node => ({
             source: node.parent as string,
@@ -121,7 +141,7 @@ export function useSupabaseSync() {
           applyDefaultMindmap();
         }
 
-        const imgMap = (nodeImagesResult.data?.[0]?.content || {}) as Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string }>;
+        const imgMap = (nodeImagesResult.data?.[0]?.content || {}) as Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string; iconAlt?: string; imageAlt?: string }>;
         const convertGoogleDriveUrl = (url?: string): string | undefined => {
           if (!url) return url;
           const match = url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/) || url.match(/id=([a-zA-Z0-9-_]+)/);
@@ -132,10 +152,14 @@ export function useSupabaseSync() {
           const entry = imgMap[node.id] || {};
           const overrideKamon = convertGoogleDriveUrl(entry.kamon || entry.icon);
           const overrideRealistic = convertGoogleDriveUrl(entry.realistic || entry.image);
+          // 優先使用後台明確設定；沒有設定時保留節點原有設計資產，
+          // 不再用一個永遠 truthy 的通用路徑覆蓋 constants 內的專屬圖片。
+          const defaultKamon = node.kamonIcon || `/images/nodes/kamon_${node.id}.png`;
+          const defaultRealistic = node.image || `/images/nodes/realistic_${node.id}.png`;
           return {
             ...node,
-            kamonIcon: overrideKamon || `/images/nodes/kamon_${node.id}.png` || node.kamonIcon,
-            image: overrideRealistic || `/images/nodes/realistic_${node.id}.png` || node.image,
+            kamonIcon: overrideKamon || defaultKamon,
+            image: overrideRealistic || defaultRealistic,
             icon: overrideKamon || node.icon,
           };
         }));
@@ -146,11 +170,23 @@ export function useSupabaseSync() {
         }));
 
         const layoutContent = layoutResult.data?.[0]?.content;
-        const defaultTheme = layoutContent && typeof layoutContent === 'object' && typeof (layoutContent as { theme?: unknown }).theme === 'string'
+        const globalTheme = layoutContent && typeof layoutContent === 'object' && typeof (layoutContent as { theme?: unknown }).theme === 'string'
           ? (layoutContent as { theme: string }).theme
           : 'morandi';
-        if (typeof document !== 'undefined') {
-          document.documentElement.setAttribute('data-theme', defaultTheme);
+        let activeTheme = globalTheme;
+        if (userName) {
+          try {
+            const userStyle = await fetchUserStyleConfig(userName, userId);
+            if (typeof userStyle.theme === 'string' && SUPPORTED_THEMES.has(userStyle.theme)) {
+              activeTheme = userStyle.theme;
+            }
+          } catch (error) {
+            console.warn('[主題] 讀取個人主題失敗，沿用全域主題：', error);
+          }
+        }
+        if (!cancelled && typeof document !== 'undefined') {
+          document.documentElement.setAttribute('data-theme', activeTheme);
+          document.documentElement.classList.toggle('dark', activeTheme === 'moonlight');
         }
 
         const dbDiscussions = discussionsResult.data;

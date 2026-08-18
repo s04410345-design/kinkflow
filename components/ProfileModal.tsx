@@ -10,7 +10,47 @@ import { useSupabaseSync } from '@/hooks/useSupabaseSync';
 import { QuizResultPhase } from './quiz/QuizResultPhase';
 import { useQuizConfig } from './QuizContext';
 import { parseDiscussionDate } from '@/lib/contentModel';
+import { mapDiscussionRow, type DiscussionRow } from '@/lib/data/discussions';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, PolarRadiusAxis } from 'recharts';
+
+type ProfileDiscussionPost = DiscussionPost & { nodeName: string; nodeColor: string };
+
+type ProfileVisibility = {
+  cover: boolean;
+  bio: boolean;
+  identity: boolean;
+  stats: boolean;
+  hotPosts: boolean;
+  latestPosts: boolean;
+  quizResult: boolean;
+  radar: boolean;
+};
+
+const DEFAULT_PROFILE_VISIBILITY: ProfileVisibility = {
+  cover: true,
+  bio: true,
+  identity: true,
+  stats: true,
+  hotPosts: true,
+  latestPosts: true,
+  quizResult: true,
+  radar: true,
+};
+
+function normalizeProfileVisibility(value: unknown): ProfileVisibility {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return DEFAULT_PROFILE_VISIBILITY;
+  const record = value as Record<string, unknown>;
+  return {
+    cover: typeof record.cover === 'boolean' ? record.cover : true,
+    bio: typeof record.bio === 'boolean' ? record.bio : true,
+    identity: typeof record.identity === 'boolean' ? record.identity : true,
+    stats: typeof record.stats === 'boolean' ? record.stats : true,
+    hotPosts: typeof record.hotPosts === 'boolean' ? record.hotPosts : true,
+    latestPosts: typeof record.latestPosts === 'boolean' ? record.latestPosts : true,
+    quizResult: typeof record.quizResult === 'boolean' ? record.quizResult : true,
+    radar: typeof record.radar === 'boolean' ? record.radar : true,
+  };
+}
 
 interface UserProfile {
   userName: string;
@@ -24,6 +64,7 @@ interface UserProfile {
   quizAiAnalysis?: string;
   avatarUrl?: string;
   coverUrl?: string;
+  visibility: ProfileVisibility;
 }
 
 export default function ProfileModal({ 
@@ -32,7 +73,8 @@ export default function ProfileModal({
   isGuest,
   onClose,
   onJump,
-  onNameChange
+  onNameChange,
+  isOwner = false,
 }: { 
   userName: string; 
   userId?: string | null;
@@ -40,6 +82,7 @@ export default function ProfileModal({
   onClose: () => void;
   onJump?: (nodeId: string, postId: string) => void;
   onNameChange?: (newName: string) => void;
+  isOwner?: boolean;
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [displayUserName, setDisplayUserName] = useState(userName);
@@ -51,6 +94,7 @@ export default function ProfileModal({
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [editCoverUrl, setEditCoverUrl] = useState('');
   const [editUserName, setEditUserName] = useState('');
+  const [visibility, setVisibility] = useState<ProfileVisibility>(DEFAULT_PROFILE_VISIBILITY);
   const [gender, setGender] = useState('secret');
   const [bdsmRole, setBdsmRole] = useState('Switch');
   const { nodesData } = useSupabaseSync();
@@ -95,12 +139,17 @@ export default function ProfileModal({
         let fetchedBdsmRole = 'Switch';
         let joinedAt = '';
 
+        const profileLayout = profileData?.layout_config && typeof profileData.layout_config === 'object' && !Array.isArray(profileData.layout_config)
+          ? profileData.layout_config as { profileMeta?: { coverUrl?: unknown; gender?: unknown; bdsmRole?: unknown; visibility?: unknown } }
+          : null;
+        const profileMeta = profileLayout?.profileMeta;
+        const fetchedVisibility = normalizeProfileVisibility(profileMeta?.visibility);
         if (profileData) {
           fetchedBio = profileData.bio || '';
           fetchedAvatarUrl = profileData.avatar_url || '';
-          // 從 profiles 表讀取 gender 和 bdsm_role
-          if (profileData.gender) fetchedGender = profileData.gender;
-          if (profileData.bdsm_role) fetchedBdsmRole = profileData.bdsm_role;
+          if (typeof profileMeta?.coverUrl === 'string') fetchedCoverUrl = profileMeta.coverUrl;
+          if (typeof profileMeta?.gender === 'string') fetchedGender = profileMeta.gender;
+          if (typeof profileMeta?.bdsmRole === 'string') fetchedBdsmRole = profileMeta.bdsmRole;
         }
 
         if (!fetchedBio && quizData?.content?.bio) fetchedBio = quizData.content.bio;
@@ -115,6 +164,7 @@ export default function ProfileModal({
         setEditCoverUrl(fetchedCoverUrl);
         setGender(fetchedGender);
         setBdsmRole(fetchedBdsmRole);
+        setVisibility(fetchedVisibility);
         
         // 優先從 profiles 的 created_at 獲取加入時間，格式化為 zh-TW
         const rawDate = profileData?.created_at || quizData?.content?.joinedAt;
@@ -124,32 +174,30 @@ export default function ProfileModal({
         let quizScores = quizData?.content?.scores || null;
         let quizAiAnalysis = quizData?.content?.aiAnalysis || '';
 
-        // 查發言/留言 (使用 .in 安全查詢)
-        const { data: dbComments } = await supabase
-          .from('discussions')
-          .select('*')
-          .in('author', candidateNames);
-        
+        // 只依 author_id 讀取正式 discussions rows，避免查詢不存在的 author／timestamp 欄位。
+        const { data: dbComments } = profileData?.id
+          ? await supabase
+            .from('discussions')
+            .select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at')
+            .eq('author_id', profileData.id)
+            .is('parent_id', null)
+            .order('created_at', { ascending: false })
+            .limit(100)
+          : { data: [] as DiscussionRow[] };
+
         let totalUpvotes = 0;
-        let posts: DiscussionPost[] = [];
-        
+        let posts: ProfileDiscussionPost[] = [];
+
         if (dbComments) {
-          posts = dbComments.map(d => {
-            const n = nodesData.find(gn => gn.id === d.node_id);
-            let nodeName = n?.label || '未知節點';
-            let nodeColor = n?.color || '#E8C5C8';
-            if (d.node_id === 'lobby_chat') {
-              nodeName = '即時聊天';
-            } else if (d.node_id === 'lobby_board') {
-              nodeName = '討論交流';
-            }
-            return {
-              id: d.id, author: d.author, text: d.text, upvotes: d.upvotes || 0, timestamp: Number(d.timestamp),
-              replies: d.replies || [], emojis: d.emojis || [],
-              nodeId: d.node_id, nodeName, nodeColor: getWafuColor(nodeColor)
-            };
-          });
-          totalUpvotes = dbComments.reduce((acc, c) => acc + (c.upvotes || 0), 0);
+          posts = dbComments.map((row) => {
+            const mapped = mapDiscussionRow(row as DiscussionRow);
+            if (!mapped) return null;
+            const n = nodesData.find((gn) => gn.id === mapped.nodeId);
+            const nodeName = mapped.nodeId === 'lobby_chat' ? '即時聊天' : mapped.nodeId === 'lobby_board' ? '討論交流' : n?.label || '未知節點';
+            const nodeColor = n?.color || '#E8C5C8';
+            return { ...mapped, nodeName, nodeColor: getWafuColor(nodeColor) };
+          }).filter((post): post is ProfileDiscussionPost => post !== null);
+          totalUpvotes = posts.reduce((acc, post) => acc + post.upvotes, 0);
         }
         
         const totalComments = posts.length;
@@ -167,7 +215,8 @@ export default function ProfileModal({
           quizScores,
           quizAiAnalysis,
           avatarUrl: fetchedAvatarUrl,
-          coverUrl: fetchedCoverUrl
+          coverUrl: fetchedCoverUrl,
+          visibility: fetchedVisibility,
         });
         
         // 優先讀取使用者專屬設定的 layout mode
@@ -278,7 +327,7 @@ export default function ProfileModal({
       const updateRes = await fetch('/api/updateProfile', {
         method: 'POST',
         headers: await getAuthHeaders(),
-        body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole })
+        body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole, visibility })
       });
       if (!updateRes.ok) {
         const errorText = await updateRes.text();
@@ -301,6 +350,14 @@ export default function ProfileModal({
   
   const theme = layoutConfig?.theme || 'default';
   const pStyle = layoutConfig?.profileStyle || 'morandi-classic';
+  const canShow = (key: keyof ProfileVisibility): boolean => isOwner || profile?.visibility[key] !== false;
+  const moduleVisibility: Record<string, keyof ProfileVisibility> = {
+    stats: 'stats',
+    hot_posts: 'hotPosts',
+    latest_posts: 'latestPosts',
+    quiz_result: 'quizResult',
+    radar: 'radar',
+  };
   
   let containerStyle = {};
   let containerClass = "rounded-[2.5rem] w-full max-w-4xl shadow-2xl relative animate-slide-up border-2 transition-all flex flex-col overflow-hidden";
@@ -328,6 +385,9 @@ export default function ProfileModal({
         
         {(() => {
           const renderModule = (mod: any) => {
+            const visibilityKey = moduleVisibility[mod.id];
+            if (visibilityKey && !canShow(visibilityKey)) return null;
+
             if (mod.id === 'header') {
               const currentCover = isEditingBio ? editCoverUrl : (profile?.coverUrl || '');
               const currentAvatar = isEditingBio ? editAvatarUrl : (profile?.avatarUrl || '');
@@ -336,8 +396,8 @@ export default function ProfileModal({
               return (
                 <div key={mod.id} className="relative w-full">
                   {/* Cover Photo */}
-                  <div className="h-48 md:h-64 w-full relative bg-gradient-to-br from-[#D9B650] via-[#E8C5C8] to-[#C5D4B6] overflow-hidden">
-                    {currentCover && (
+                  <div className={`${canShow('cover') ? 'h-48 md:h-64' : 'h-8'} w-full relative bg-gradient-to-br from-[#D9B650] via-[#E8C5C8] to-[#C5D4B6] overflow-hidden`}>
+                    {canShow('cover') && currentCover && (
                       <img 
                         src={currentCover} 
                         alt="Cover" 
@@ -401,14 +461,14 @@ export default function ProfileModal({
                             )}
                           </h2>
                         )}
-                         {profile?.joinedAt && (
+                         {canShow('stats') && profile?.joinedAt && (
                            <p className="text-xs sm:text-sm text-[#1A1612] font-black mt-1 whitespace-nowrap bg-[#D9B650] px-3 py-1 rounded-full inline-block shadow-xs">加入時間：{profile.joinedAt}</p>
                          )}
                       </div>
                     </div>
                     
                   {/* Bio & Identity Tags */}
-                  <div className="mt-3">
+                  {(canShow('bio') || canShow('identity') || isEditingBio) && <div className="mt-3">
                     {isEditingBio ? (
                       <div className="space-y-3 bg-white/40 dark:bg-black/30 p-4 rounded-2xl border border-[#D1C6B4]/40">
                         <div>
@@ -461,6 +521,31 @@ export default function ProfileModal({
                           className="w-full p-3 rounded-xl border border-[#D1C6B4] bg-white/70 focus:bg-white dark:bg-black/40 text-[#1A1612] dark:text-[#E5DCD0] font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#D9B650] resize-none h-24"
                           placeholder="寫些什麼來介紹自己吧..."
                         />
+                        <div className="rounded-xl border border-[#D1C6B4]/50 bg-white/45 p-3">
+                          <p className="mb-2 text-xs font-black text-[#4A4238]">公開給其他人看的內容</p>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] font-bold">
+                            {([
+                              ['cover', '封面照片'],
+                              ['bio', '個人簡介'],
+                              ['identity', '身份標籤'],
+                              ['stats', '互動統計'],
+                              ['hotPosts', '熱門發言'],
+                              ['latestPosts', '最新留言'],
+                              ['quizResult', '測驗結果'],
+                              ['radar', '偏好雷達圖'],
+                            ] as const).map(([key, label]) => (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => setVisibility((current) => ({ ...current, [key]: !current[key] }))}
+                                className={`rounded-lg border px-2 py-1.5 text-left transition ${visibility[key] ? 'border-[#89A090] bg-[#E8F0E5] text-[#36523C]' : 'border-[#D1C6B4]/50 bg-white/60 text-[#7A7065]'}`}
+                              >
+                                {visibility[key] ? '顯示' : '不公開'} · {label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="mt-2 text-[10px] font-semibold text-[#4A4238]/60">全部關閉時，其他人只會看到你的頭像與名稱。</p>
+                        </div>
                         <div className="flex gap-2 justify-end">
                           <button onClick={() => { setIsEditingBio(false); setBio((profile as any)?.bio || ''); }} className="px-4 py-2 text-[#4A4238]/60 dark:text-[#E5DCD0]/60 font-bold hover:bg-black/5 rounded-xl transition-colors">
                             取消
@@ -473,21 +558,21 @@ export default function ProfileModal({
                     ) : (
                       <div className="space-y-2">
                         {/* 顯示身份標籤 */}
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                        {canShow('identity') && <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="px-3 py-1 rounded-full text-xs font-black bg-[#1A1612] text-[#FDFBF7] shadow-xs border border-[#1A1612]">
                             {gender === 'male' ? '♂️ 男性' : gender === 'female' ? '♀️ 女性' : gender === 'nonbinary' ? '⚧️ 非二元' : '🔒 不透漏'}
                           </span>
                           <span className="px-3 py-1 rounded-full text-xs font-black bg-[#D9B650] text-[#1A1612] shadow-xs border border-[#D9B650]">
                             {bdsmRole === 'S' ? '👑 S / 支配者' : bdsmRole === 'D' ? '♟️ D / 領導者' : bdsmRole === 'Sub' ? '🧎 Sub / 臣服者' : bdsmRole === 'Maso' ? '🥀 M / 承受者' : bdsmRole === 'Switch' ? '☯️ Switch / 雙向' : '👁️ 觀測者'}
                           </span>
-                        </div>
+                        </div>}
 
-                        <p className={`whitespace-pre-wrap leading-relaxed font-bold text-sm sm:text-base ${isDarkStyle ? 'text-[#FDFBF7]' : 'text-[#1A1612]'}`}>
+                        {canShow('bio') && <p className={`whitespace-pre-wrap leading-relaxed font-bold text-sm sm:text-base ${isDarkStyle ? 'text-[#FDFBF7]' : 'text-[#1A1612]'}`}>
                           {bio || <span className="opacity-60 italic">尚未填寫個人簡介</span>}
-                        </p>
+                        </p>}
                       </div>
                     )}
-                  </div>
+                  </div>}
                   </div>
                 </div>
               );

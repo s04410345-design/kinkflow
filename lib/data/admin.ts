@@ -1,7 +1,8 @@
 import type { DiscussionPost, GraphNode } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { mapDiscussionRow, type DiscussionRow } from '@/lib/data/discussions';
 
-export type AdminNodeImages = Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string }>;
+export type AdminNodeImages = Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string; iconAlt?: string; imageAlt?: string }>;
 export type AdminLogEntry = { id: string; created_at: string; action_type: string; details: Record<string, unknown>; device_id?: string | null };
 export type AdminUser = { user_id: string; role_level: number; granted_by?: string | null; created_at: string };
 export type AuthorApplication = { user_id: string; status: 'pending' | 'approved' | 'rejected' | string; application_text: string; reviewed_by?: string | null; reviewed_at?: string | null; review_note?: string | null; created_at: string; updated_at: string };
@@ -27,28 +28,18 @@ function asNodes(value: unknown): GraphNode[] {
 }
 
 function toDiscussionPost(value: Record<string, unknown>): DiscussionPost | null {
-  if (value.id === undefined || typeof value.author !== 'string' || typeof value.text !== 'string') return null;
-  return {
-    id: typeof value.id === 'number' || typeof value.id === 'string' ? value.id : String(value.id),
-    author: value.author,
-    text: value.text,
-    title: typeof value.title === 'string' ? value.title : undefined,
-    body: typeof value.body === 'string' ? value.body : undefined,
-    upvotes: typeof value.upvotes === 'number' ? value.upvotes : 0,
-    timestamp: typeof value.timestamp === 'number' || typeof value.timestamp === 'string' ? value.timestamp : null,
-    replies: Array.isArray(value.replies) ? value.replies as DiscussionPost['replies'] : [],
-    emojis: Array.isArray(value.emojis) ? value.emojis as DiscussionPost['emojis'] : [],
-  };
+  return mapDiscussionRow(value as DiscussionRow);
 }
 
 export async function fetchAdminCmsData(defaultNodes: GraphNode[], defaultQuizQuestions: unknown): Promise<AdminCmsData> {
-  const keys = ['mindmap_data', 'quiz_system_config', 'google_sheets_config', 'node_images'];
+  const keys = ['mindmap_data', 'mindmap_data_draft', 'quiz_system_config', 'google_sheets_config', 'node_images', 'node_images_draft'];
   const [contentResult, discussionResult] = await Promise.all([
     supabase.from('quiz_content').select('key_name,content').in('key_name', keys),
-    supabase.from('discussions').select('*').limit(2000),
+    supabase.from('discussions').select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at').limit(2000),
   ]);
   const content = new Map((contentResult.data || []).map((row) => [String(row.key_name), row.content as unknown]));
-  const mindmap = asNodes(content.get('mindmap_data'));
+  // 後台優先載入草稿；前台只讀取正式的 mindmap_data / node_images key。
+  const mindmap = asNodes(content.get('mindmap_data_draft') ?? content.get('mindmap_data'));
   const effectiveNodes = mindmap.length >= 10 ? mindmap : defaultNodes;
   const nodeNameMap: Record<string, string> = {};
   const nodeParentMap: Record<string, string> = {};
@@ -73,7 +64,7 @@ export async function fetchAdminCmsData(defaultNodes: GraphNode[], defaultQuizQu
     mindmapJson: JSON.stringify(effectiveNodes, null, 2),
     quizJson: JSON.stringify(content.get('quiz_system_config') || defaultQuizQuestions, null, 2),
     sheetConfig: asRecord(content.get('google_sheets_config')),
-    nodeImages: asRecord(content.get('node_images')) as AdminNodeImages,
+    nodeImages: asRecord(content.get('node_images_draft') ?? content.get('node_images')) as AdminNodeImages,
     nodeNameMap,
     nodeParentMap,
     nodeLevelMap,
@@ -152,6 +143,31 @@ export async function saveAdminContent(keyName: string, data: unknown, isJson = 
   }
 }
 
+export async function publishQuizContent(quizJson: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const content = JSON.parse(quizJson) as unknown;
+    if (!content || typeof content !== 'object' || Array.isArray(content)) return { ok: false, message: '測驗內容格式不可為空。' };
+    const { error } = await supabase.from('quiz_content').upsert({ key_name: 'quiz_system_config', content }, { onConflict: 'key_name' });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '測驗發布內容格式錯誤' };
+  }
+}
+
+export async function publishNodeContent(mindmapJson: string, nodeImages: AdminNodeImages): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const nodes = JSON.parse(mindmapJson) as unknown;
+    if (!Array.isArray(nodes) || nodes.length === 0) return { ok: false, message: '節點內容不可為空。' };
+    const { error } = await supabase.from('quiz_content').upsert([
+      { key_name: 'mindmap_data', content: nodes },
+      { key_name: 'node_images', content: nodeImages },
+    ], { onConflict: 'key_name' });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '發布內容格式錯誤' };
+  }
+}
+
 export type AdminDiscussionItem = {
   id: string | number;
   author: string;
@@ -161,14 +177,16 @@ export type AdminDiscussionItem = {
   node_id?: string;
   replies?: DiscussionPost['replies'];
   emojis?: DiscussionPost['emojis'];
+  replyCount?: number;
   isReply?: boolean;
   parentId?: string | number;
 };
 
 export async function fetchAdminDiscussionItems(): Promise<{ posts: AdminDiscussionItem[]; nodeNames: Record<string, string> }> {
-  const [{ data: mdArr }, { data, error }] = await Promise.all([
+  const [{ data: mdArr }, { data, error }, { data: profiles }] = await Promise.all([
     supabase.from('quiz_content').select('content').eq('key_name', 'mindmap_data').limit(1),
-    supabase.from('discussions').select('*').limit(2000),
+    supabase.from('discussions').select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at').limit(2000),
+    supabase.from('profiles').select('id,username').limit(5000),
   ]);
   if (error) throw error;
 
@@ -178,33 +196,30 @@ export async function fetchAdminDiscussionItems(): Promise<{ posts: AdminDiscuss
     if (node.id && node.label) nodeNames[node.id] = node.label;
   });
 
+  const authorNames = new Map((profiles || []).map((profile) => [String(profile.id), typeof profile.username === 'string' ? profile.username : '匿名']));
+  const replyCounts = new Map<string, number>();
+  (data || []).forEach((row) => {
+    const parentId = asRecord(row).parent_id;
+    if (typeof parentId === 'string' && parentId) replyCounts.set(parentId, (replyCounts.get(parentId) || 0) + 1);
+  });
+
   const posts: AdminDiscussionItem[] = [];
   (data || []).forEach((row) => {
     const record = asRecord(row);
     const id = typeof record.id === 'number' || typeof record.id === 'string' ? record.id : null;
     if (id === null) return;
-    const parent: AdminDiscussionItem = {
+    const parentId = typeof record.parent_id === 'string' ? record.parent_id : undefined;
+    const authorId = typeof record.author_id === 'string' ? record.author_id : '';
+    posts.push({
       id,
-      author: typeof record.author === 'string' ? record.author : '匿名',
+      author: authorNames.get(authorId) || (authorId ? `會員 ${authorId.slice(0, 8)}` : '匿名'),
       text: typeof record.text === 'string' ? record.text : '',
-      upvotes: typeof record.upvotes === 'number' ? record.upvotes : 0,
-      timestamp: typeof record.timestamp === 'number' || typeof record.timestamp === 'string' ? record.timestamp : null,
+      upvotes: typeof record.reach_score === 'number' ? record.reach_score : 0,
+      timestamp: typeof record.created_at === 'string' ? record.created_at : null,
       node_id: typeof record.node_id === 'string' ? record.node_id : 'lobby_board',
-      replies: Array.isArray(record.replies) ? record.replies as DiscussionPost['replies'] : [],
-      emojis: Array.isArray(record.emojis) ? record.emojis as DiscussionPost['emojis'] : [],
-    };
-    posts.push(parent);
-    (parent.replies || []).forEach((reply) => {
-      posts.push({
-        id: reply.id,
-        author: reply.author || '匿名',
-        text: reply.text || '',
-        upvotes: reply.upvotes || 0,
-        timestamp: reply.timestamp || parent.timestamp,
-        node_id: parent.node_id,
-        isReply: true,
-        parentId: parent.id,
-      });
+      replyCount: parentId ? undefined : replyCounts.get(String(id)) || 0,
+      isReply: Boolean(parentId),
+      parentId,
     });
   });
   return { posts, nodeNames };

@@ -9,6 +9,8 @@ export type ForumItem = DiscussionPost & {
   authorId?: string;
   topicId?: string | null;
   status?: string;
+  commentCount: number;
+  hotScore: number;
 };
 
 export type ForumComment = {
@@ -29,11 +31,25 @@ type LiveForumPost = {
   status?: string;
   forum_topics?: { topic_node_links?: { node_id: string }[] }[];
   forum_post_media?: { media_assets?: { storage_path: string; media_type: string }[] }[];
+  forum_comments?: { count?: number }[];
 };
 
 function storageUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   return supabase.storage.from('quiz-images').getPublicUrl(path).data.publicUrl;
+}
+
+function forumHotScore(createdAt: string, commentCount: number): number {
+  const ageHours = Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 3600000);
+  const freshness = Number.isFinite(ageHours) ? Math.max(0, 72 - ageHours) : 0;
+  return commentCount * 4 + freshness;
+}
+
+export function sortForumItems(items: ForumItem[], mode: 'hot' | 'latest'): ForumItem[] {
+  return [...items].sort((a, b) => {
+    if (mode === 'latest') return new Date(b.timestamp ? String(b.timestamp) : 0).getTime() - new Date(a.timestamp ? String(a.timestamp) : 0).getTime();
+    return b.hotScore - a.hotScore || new Date(b.timestamp ? String(b.timestamp) : 0).getTime() - new Date(a.timestamp ? String(a.timestamp) : 0).getTime();
+  });
 }
 
 function errorMessage(error: { message?: string } | null, fallback: string): string {
@@ -68,18 +84,41 @@ export function toLegacyForumItems(nodesData: GraphNode[], discussions: Record<s
       nodeId,
       nodeLabel: node?.label || post.nodeName || '未分類主題',
       nodeColor: node?.color || '#D9B650',
+      commentCount: post.replies?.length || 0,
+      hotScore: getLegacyHotScore(post),
     };
   }));
 }
 
+function getLegacyHotScore(post: DiscussionPost): number {
+  const timestamp = post.timestamp ? String(post.timestamp) : '';
+  const replies = Array.isArray(post.replies) ? post.replies.length : 0;
+  return forumHotScore(timestamp, replies);
+}
+
 export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<ForumItem[]> {
-  const { data, error } = await supabase
+  const selectWithoutCounts = 'id,title,body_text,created_at,author_id,topic_id,status,forum_topics(topic_node_links(node_id)),forum_post_media(media_assets(storage_path,media_type))';
+  const selectWithCounts = `${selectWithoutCounts},forum_comments(count)`;
+  const countedResult = await supabase
     .from('forum_posts')
-    .select('id,title,body_text,created_at,author_id,topic_id,status,forum_topics(topic_node_links(node_id)),forum_post_media(media_assets(storage_path,media_type))')
-    .in('status', ['published', 'locked'])
+    .select(selectWithCounts)
+    .eq('status', 'published')
     .order('created_at', { ascending: false })
     .limit(100);
-  if (error || !data?.length) return [];
+
+  let rawData: LiveForumPost[] | null = countedResult.data as LiveForumPost[] | null;
+  if (countedResult.error) {
+    const fallbackResult = await supabase
+      .from('forum_posts')
+      .select(selectWithoutCounts)
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (fallbackResult.error) throw new Error(errorMessage(fallbackResult.error, '論壇內容暫時無法載入，請稍後再試。'));
+    rawData = fallbackResult.data as LiveForumPost[] | null;
+  }
+  if (!rawData?.length) return [];
+  const data = rawData as LiveForumPost[];
 
   const nodes = new Map(nodesData.map((node) => [node.id, node]));
   return (data as LiveForumPost[]).map((post) => {
@@ -106,18 +145,21 @@ export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<
       upvotes: 0,
       replies: [],
       emojis: [],
+      commentCount: post.forum_comments?.[0]?.count || 0,
+      hotScore: forumHotScore(post.created_at, post.forum_comments?.[0]?.count || 0),
     } as ForumItem;
   });
 }
 
 export async function fetchForumComments(postId: string): Promise<ForumComment[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('forum_comments')
     .select('id,body_text,created_at,author_id,status')
     .eq('post_id', postId)
     .eq('status', 'published')
     .order('created_at', { ascending: true })
     .limit(100);
+  if (error) throw new Error(errorMessage(error, '留言暫時無法載入，請稍後再試。'));
   return (data || []) as ForumComment[];
 }
 
@@ -126,7 +168,7 @@ export async function createForumPost(title: string, body: string, nodeIds: stri
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const safeTitle = title.trim();
   const safeBody = body.trim();
-  if (!safeTitle || safeTitle.length > 180) return { ok: false, message: '標題必須為 1 至 180 字。' };
+  if (!safeTitle || safeTitle.length > 160) return { ok: false, message: '標題必須為 1 至 160 字。' };
   if (!safeBody || safeBody.length > 10000) return { ok: false, message: '文章內容必須為 1 至 10,000 字。' };
   const safeNodeIds = [...new Set(nodeIds.filter(Boolean))].slice(0, 3);
   let topicId: string | undefined;
@@ -155,7 +197,7 @@ export async function updateForumPost(postId: string, title: string, body: strin
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const safeTitle = title.trim();
   const safeBody = body.trim();
-  if (!safeTitle || safeTitle.length > 180) return { ok: false, message: '標題必須為 1 至 180 字。' };
+  if (!safeTitle || safeTitle.length > 160) return { ok: false, message: '標題必須為 1 至 160 字。' };
   if (!safeBody || safeBody.length > 10000) return { ok: false, message: '文章內容必須為 1 至 10,000 字。' };
   const { error } = await supabase.from('forum_posts').update({ title: safeTitle, body_text: safeBody, updated_at: new Date().toISOString() }).eq('id', postId).eq('author_id', userId);
   return error ? { ok: false, message: errorMessage(error, '編輯文章失敗，請稍後再試。') } : { ok: true };
@@ -172,7 +214,7 @@ export async function createForumComment(postId: string, body: string): Promise<
   const userId = await currentUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const safeBody = body.trim();
-  if (!safeBody || safeBody.length > 2000) return { ok: false, message: '留言必須為 1 至 2,000 字。' };
+  if (!safeBody || safeBody.length > 3000) return { ok: false, message: '留言必須為 1 至 3,000 字。' };
   const { error } = await supabase.from('forum_comments').insert({ post_id: postId, author_id: userId, body_text: safeBody, status: 'published' });
   return error ? { ok: false, message: errorMessage(error, '留言失敗，請稍後再試。') } : { ok: true };
 }
@@ -181,7 +223,7 @@ export async function updateForumComment(commentId: string, body: string): Promi
   const userId = await currentUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const safeBody = body.trim();
-  if (!safeBody || safeBody.length > 2000) return { ok: false, message: '留言必須為 1 至 2,000 字。' };
+  if (!safeBody || safeBody.length > 3000) return { ok: false, message: '留言必須為 1 至 3,000 字。' };
   const { error } = await supabase.from('forum_comments').update({ body_text: safeBody, updated_at: new Date().toISOString() }).eq('id', commentId).eq('author_id', userId);
   return error ? { ok: false, message: errorMessage(error, '編輯留言失敗，請稍後再試。') } : { ok: true };
 }

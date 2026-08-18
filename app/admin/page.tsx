@@ -116,11 +116,13 @@ export default function AdminDashboard() {
             mindmapJson={workspace.mindmapJson}
             setMindmapJson={workspace.setMindmapJson}
             onSave={workspace.handleSave}
+            onPublish={workspace.publishNodes}
             saving={workspace.saving}
             nodeImages={workspace.nodeImages}
             setNodeImages={workspace.setNodeImages}
             uploadingState={workspace.uploadingState}
             handleFileUpload={workspace.handleFileUpload}
+            preferredNodeId="community_safety"
           />
         ))}
 
@@ -131,6 +133,7 @@ export default function AdminDashboard() {
             quizJson={workspace.quizJson}
             setQuizJson={workspace.setQuizJson}
             onSave={workspace.handleSave}
+            onPublish={workspace.publishQuiz}
             saving={workspace.saving}
           />
         ))}
