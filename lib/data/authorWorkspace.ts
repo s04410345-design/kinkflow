@@ -1,4 +1,11 @@
 import { supabase } from '@/lib/supabase';
+import {
+  buildArticleDraftBody,
+  buildPublishedArticleBody,
+  createEmptyArticleDocument,
+  parseArticleDocument,
+  type ArticleDocument,
+} from '@/lib/data/articles';
 
 export type AuthorVerificationStatus = 'pending' | 'approved' | 'rejected' | 'none';
 
@@ -15,7 +22,7 @@ export type EditableArticle = {
   id: string;
   title: string;
   excerpt: string;
-  body_json: { markdown?: string; [key: string]: unknown };
+  body_json: Record<string, unknown>;
   status: 'draft' | 'published' | 'archived' | string;
   created_at: string;
   updated_at: string;
@@ -27,6 +34,11 @@ function errorMessage(error: { message?: string } | null, fallback: string): str
   if (!error) return fallback;
   if (/permission|row-level security|not authenticated|JWT/i.test(error.message || '')) return '目前帳號尚未取得認證作者權限。';
   return fallback;
+}
+
+function toDocument(value: ArticleDocument | string): ArticleDocument {
+  if (typeof value === 'string') return { ...createEmptyArticleDocument(), introMarkdown: value.trim() };
+  return value;
 }
 
 async function getUserId(): Promise<string | null> {
@@ -54,10 +66,11 @@ export async function submitAuthorVerification(applicationText: string): Promise
 export async function fetchMyArticles(): Promise<EditableArticle[]> {
   const userId = await getUserId();
   if (!userId) return [];
-  const { data } = await supabase.from('articles').select('id,title,excerpt,body_json,status,created_at,updated_at,published_at').eq('author_id', userId).order('updated_at', { ascending: false }).limit(50);
+  const { data, error } = await supabase.from('articles').select('id,title,excerpt,body_json,status,created_at,updated_at,published_at').eq('author_id', userId).order('updated_at', { ascending: false }).limit(50);
+  if (error) return [];
   const articles = (data || []) as EditableArticle[];
   if (!articles.length) return articles;
-  const { data: links } = await supabase.from('article_node_links').select('article_id,node_id').in('article_id', articles.map((article) => article.id));
+  const { data: links } = await supabase.from('article_node_links').select('article_id,node_id').in('article_id', articles.map((article) => article.id)).limit(150);
   const nodesByArticle = new Map<string, string[]>();
   (links || []).forEach((link) => {
     const current = nodesByArticle.get(String(link.article_id)) || [];
@@ -67,22 +80,27 @@ export async function fetchMyArticles(): Promise<EditableArticle[]> {
   return articles.map((article) => ({ ...article, nodeIds: nodesByArticle.get(article.id) || [] }));
 }
 
-export async function createArticleDraft(title: string, excerpt: string, markdown: string, nodeIds: string[] = []): Promise<{ ok: boolean; articleId?: string; message?: string }> {
+export async function createArticleDraft(title: string, excerpt: string, documentOrMarkdown: ArticleDocument | string, nodeIds: string[] = [], coverMediaId?: string | null): Promise<{ ok: boolean; articleId?: string; message?: string }> {
   const userId = await getUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
-  const { data, error } = await supabase.from('articles').insert({ author_id: userId, title: title.trim(), slug: `draft-${crypto.randomUUID()}`, excerpt: excerpt.trim(), body_json: { markdown: markdown.trim() }, status: 'draft' }).select('id').single();
+  const document = toDocument(documentOrMarkdown);
+  const { data, error } = await supabase.from('articles').insert({ author_id: userId, title: title.trim(), slug: `draft-${crypto.randomUUID()}`, excerpt: excerpt.trim(), body_json: buildArticleDraftBody(document, { published: createEmptyArticleDocument() }), cover_media_id: coverMediaId || null, status: 'draft' }).select('id').single();
   if (error || !data?.id) return { ok: false, message: errorMessage(error, '建立文章失敗，請稍後再試。') };
-  if (nodeIds.length) {
-    const links = await supabase.from('article_node_links').insert([...new Set(nodeIds)].slice(0, 3).map((nodeId) => ({ article_id: data.id, node_id: nodeId, relation_type: 'primary' })));
+  const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean).slice(0, 3);
+  if (uniqueNodeIds.length) {
+    const links = await supabase.from('article_node_links').insert(uniqueNodeIds.map((nodeId) => ({ article_id: data.id, node_id: nodeId, relation_type: 'primary' })));
     if (links.error) return { ok: false, message: errorMessage(links.error, '文章建立了，但節點關聯失敗，請稍後從編輯器補上。'), articleId: data.id };
   }
   return { ok: true, articleId: data.id };
 }
 
-export async function updateArticleDraft(articleId: string, title: string, excerpt: string, markdown: string, nodeIds: string[] = []): Promise<{ ok: boolean; articleId?: string; message?: string }> {
+export async function updateArticleDraft(articleId: string, title: string, excerpt: string, documentOrMarkdown: ArticleDocument | string, nodeIds: string[] = [], coverMediaId?: string | null): Promise<{ ok: boolean; articleId?: string; message?: string }> {
   const userId = await getUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
-  const { error } = await supabase.from('articles').update({ title: title.trim(), excerpt: excerpt.trim(), body_json: { markdown: markdown.trim() }, updated_at: new Date().toISOString() }).eq('id', articleId).eq('author_id', userId).in('status', ['draft', 'published']);
+  const { data: current, error: currentError } = await supabase.from('articles').select('body_json').eq('id', articleId).eq('author_id', userId).maybeSingle();
+  if (currentError || !current) return { ok: false, message: errorMessage(currentError, '找不到要儲存的文章。') };
+  const document = toDocument(documentOrMarkdown);
+  const { error } = await supabase.from('articles').update({ title: title.trim(), excerpt: excerpt.trim(), body_json: buildArticleDraftBody(document, current.body_json), cover_media_id: coverMediaId || null, updated_at: new Date().toISOString() }).eq('id', articleId).eq('author_id', userId).in('status', ['draft', 'published']);
   if (error) return { ok: false, message: errorMessage(error, '儲存文章失敗，請稍後再試。') };
 
   const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean).slice(0, 3);
@@ -98,6 +116,9 @@ export async function updateArticleDraft(articleId: string, title: string, excer
 export async function publishArticle(articleId: string): Promise<{ ok: boolean; message?: string }> {
   const userId = await getUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
-  const { error } = await supabase.from('articles').update({ status: 'published', published_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', articleId).eq('author_id', userId).eq('status', 'draft');
+  const { data: current, error: currentError } = await supabase.from('articles').select('body_json').eq('id', articleId).eq('author_id', userId).maybeSingle();
+  if (currentError || !current) return { ok: false, message: errorMessage(currentError, '找不到要發布的文章。') };
+  const document = parseArticleDocument(current.body_json, 'draft');
+  const { error } = await supabase.from('articles').update({ body_json: buildPublishedArticleBody(document, current.body_json), status: 'published', published_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', articleId).eq('author_id', userId).eq('status', 'draft');
   return error ? { ok: false, message: errorMessage(error, '發布文章失敗，請稍後再試。') } : { ok: true };
 }
