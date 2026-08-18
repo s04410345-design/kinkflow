@@ -57,7 +57,7 @@ function getGuestNameError(value: string): string | null {
 // ================= 主要元件 =================
 export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   const { userName, setUserName, userId, setUserId, isGuest, setIsGuest, authMode, setAuthMode, showAuthModal, setShowAuthModal } = useAuth();
-  const { appData, setAppData, nodesData, linksData, dbLoaded } = useSupabaseSync();
+  const { appData, setAppData, nodesData, linksData, dbLoaded } = useSupabaseSync(userId, userName);
   const { isMounted } = useAppBootstrap({ setAppData });
   const updateAppData = usePersistedAppData(setAppData);
 

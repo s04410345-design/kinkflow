@@ -6,6 +6,12 @@ import {
   saveUserStyleConfig,
 } from '@/lib/data/adminSettings';
 
+const SUPPORTED_THEMES = ['morandi', 'sakura', 'ukiyo', 'moonlight'] as const;
+
+function isSupportedTheme(value: string): boolean {
+  return SUPPORTED_THEMES.includes(value as typeof SUPPORTED_THEMES[number]);
+}
+
 interface StyleConfigModalProps {
   userName: string;
   userId?: string | null;
@@ -15,6 +21,7 @@ interface StyleConfigModalProps {
 
 export default function StyleConfigModal({
   userName,
+  userId,
   onClose,
   onThemeChange
 }: StyleConfigModalProps) {
@@ -28,11 +35,16 @@ export default function StyleConfigModal({
 
     async function loadConfig() {
       try {
-        const userContent = await fetchUserStyleConfig(userName);
+        const userContent = await fetchUserStyleConfig(userName, userId);
         if (cancelled) return;
 
-        if (typeof userContent.theme === 'string') setCurrentTheme(userContent.theme);
-        if (typeof userContent.profileStyle === 'string') setProfileStyle(userContent.profileStyle);
+        if (typeof userContent.theme === 'string' && isSupportedTheme(userContent.theme)) {
+          setCurrentTheme(userContent.theme);
+          applyThemeToDom(userContent.theme);
+        }
+        if (typeof userContent.profileStyle === 'string' && userContent.profileStyle.trim()) {
+          setProfileStyle(userContent.profileStyle);
+        }
       } catch (error) {
         console.error('Failed to load style config', error);
       }
@@ -42,7 +54,7 @@ export default function StyleConfigModal({
     return () => {
       cancelled = true;
     };
-  }, [userName]);
+  }, [userName, userId]);
 
   const applyThemeToDom = (theme: string) => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -59,7 +71,7 @@ export default function StyleConfigModal({
     setSaving(true);
     setMsg('');
     try {
-      await saveUserStyleConfig(userName, { theme: currentTheme, profileStyle });
+      await saveUserStyleConfig(userName, { theme: currentTheme, profileStyle }, userId);
 
       applyThemeToDom(currentTheme);
 
@@ -68,7 +80,7 @@ export default function StyleConfigModal({
       setTimeout(() => onClose(), 800);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '未知錯誤';
-      setMsg('❌ 儲存失敗：' + message);
+      setMsg('❌ 儲存失敗：' + message + '。請稍後再試。');
     } finally {
       setSaving(false);
     }

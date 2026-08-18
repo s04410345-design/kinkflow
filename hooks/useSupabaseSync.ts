@@ -4,9 +4,11 @@ import type { GraphNode, GraphLink, AppData, VoteStats } from '@/lib/types';
 import { parseDiscussionDate, VOTE_TYPES, type VoteType } from '@/lib/contentModel';
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
 import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
+import { fetchUserStyleConfig } from '@/lib/data/adminSettings';
 import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
 
 const INITIALIZATION_FALLBACK_MS = 8_000;
+const SUPPORTED_THEMES = new Set(['morandi', 'sakura', 'ukiyo', 'moonlight']);
 
 type QueryResult<T> = {
   data: T | null;
@@ -62,7 +64,7 @@ async function runQuery<T>(label: string, request: PromiseLike<QueryResult<T>>):
   }
 }
 
-export function useSupabaseSync() {
+export function useSupabaseSync(userId?: string | null, userName?: string | null) {
   const [appData, setAppData] = useState<AppData>(initialAppData);
   const [nodesData, setNodesData] = useState<GraphNode[]>(defaultGraphNodes);
   const [linksData, setLinksData] = useState<GraphLink[]>(defaultGraphLinks);
@@ -168,11 +170,23 @@ export function useSupabaseSync() {
         }));
 
         const layoutContent = layoutResult.data?.[0]?.content;
-        const defaultTheme = layoutContent && typeof layoutContent === 'object' && typeof (layoutContent as { theme?: unknown }).theme === 'string'
+        const globalTheme = layoutContent && typeof layoutContent === 'object' && typeof (layoutContent as { theme?: unknown }).theme === 'string'
           ? (layoutContent as { theme: string }).theme
           : 'morandi';
-        if (typeof document !== 'undefined') {
-          document.documentElement.setAttribute('data-theme', defaultTheme);
+        let activeTheme = globalTheme;
+        if (userName) {
+          try {
+            const userStyle = await fetchUserStyleConfig(userName, userId);
+            if (typeof userStyle.theme === 'string' && SUPPORTED_THEMES.has(userStyle.theme)) {
+              activeTheme = userStyle.theme;
+            }
+          } catch (error) {
+            console.warn('[主題] 讀取個人主題失敗，沿用全域主題：', error);
+          }
+        }
+        if (!cancelled && typeof document !== 'undefined') {
+          document.documentElement.setAttribute('data-theme', activeTheme);
+          document.documentElement.classList.toggle('dark', activeTheme === 'moonlight');
         }
 
         const dbDiscussions = discussionsResult.data;

@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import { SafeStorage } from '@/lib/constants';
+import { getAuthHeaders } from '@/lib/authHeaders';
 
 export type ProfileModuleColumn = 'left' | 'right' | 'full';
 
@@ -127,26 +129,64 @@ function normalizeUserStyleConfig(value: unknown): UserStyleConfig {
   };
 }
 
-export async function fetchUserStyleConfig(userName: string): Promise<UserStyleConfig> {
-  const keyName = `user_${cleanUserName(userName)}`;
-  const { data, error } = await supabase.from('quiz_content').select('content').eq('key_name', keyName).maybeSingle();
-  if (error) throw error;
-  return normalizeUserStyleConfig(data?.content);
+const USER_STYLE_STORAGE_PREFIX = 'kinkflow_user_style_';
+
+function getUserStyleStorageKey(userName: string): string {
+  return `${USER_STYLE_STORAGE_PREFIX}${cleanUserName(userName)}`;
 }
 
-export async function saveUserStyleConfig(userName: string, patch: Pick<UserStyleConfig, 'theme' | 'profileStyle'>): Promise<void> {
-  const keyName = `user_${cleanUserName(userName)}`;
-  const current = await fetchUserStyleConfig(userName);
+function getApiErrorMessage(value: unknown, fallback: string): string {
+  if (!value || typeof value !== 'object') return fallback;
+  const error = (value as { error?: unknown }).error;
+  return typeof error === 'string' && error.trim() ? error : fallback;
+}
+
+export async function fetchUserStyleConfig(userName: string, userId?: string | null): Promise<UserStyleConfig> {
+  if (!userId) {
+    return normalizeUserStyleConfig(SafeStorage.get(getUserStyleStorageKey(userName)));
+  }
+
+  const response = await fetch('/api/updateProfile', {
+    method: 'GET',
+    headers: await getAuthHeaders(),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload, '無法讀取個人主題設定。'));
+  }
+  return normalizeUserStyleConfig(payload);
+}
+
+export async function saveUserStyleConfig(
+  userName: string,
+  patch: Pick<UserStyleConfig, 'theme' | 'profileStyle'>,
+  userId?: string | null,
+): Promise<void> {
+  const current = await fetchUserStyleConfig(userName, userId);
   const next: UserStyleConfig = {
     ...current,
     ...patch,
     updatedAt: new Date().toISOString(),
   };
-  const { error } = await supabase.from('quiz_content').upsert(
-    { key_name: keyName, content: next },
-    { onConflict: 'key_name' },
-  );
-  if (error) throw error;
+
+  if (!userId) {
+    SafeStorage.set(getUserStyleStorageKey(userName), next);
+    return;
+  }
+
+  const response = await fetch('/api/updateProfile', {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+    body: JSON.stringify({
+      userId,
+      theme: next.theme,
+      profileStyle: next.profileStyle,
+    }),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload, '無法儲存個人主題設定。'));
+  }
 }
 
 export async function uploadQuizImage(folder: string, prefix: string, file: File): Promise<string> {
