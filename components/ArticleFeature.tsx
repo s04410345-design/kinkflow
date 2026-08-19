@@ -10,6 +10,8 @@ import {
   isSafeArticleUrl,
   sortArticles,
   parseArticleDocument,
+  createEmptyArticleDocument,
+  type ArticleDocument,
   type ArticleItem,
 } from '@/lib/data/articles';
 import {
@@ -23,6 +25,8 @@ import {
   type EditableArticle,
 } from '@/lib/data/authorWorkspace';
 import MarkdownPreview from '@/components/MarkdownPreview';
+import { reportForumContent, type ReportCategory } from '@/lib/data/forum';
+import { getAuthHeaders } from '@/lib/authHeaders';
 
 type ArticleFeatureProps = {
   nodesData: GraphNode[];
@@ -32,6 +36,37 @@ type ArticleFeatureProps = {
 };
 
 type ArticleSortMode = 'hot' | 'latest';
+
+function hasAsciiToken(bytes: Uint8Array, token: string): boolean {
+  const target = Array.from(token).map((character) => character.charCodeAt(0));
+  for (let index = 0; index <= bytes.length - target.length; index += 1) {
+    let matches = true;
+    for (let offset = 0; offset < target.length; offset += 1) {
+      if (bytes[index + offset] !== target[offset]) { matches = false; break; }
+    }
+    if (matches) return true;
+  }
+  return false;
+}
+
+function readAuthorVideoMetadata(file: File): Promise<{ width: number; height: number; durationSeconds: number; hasH264: boolean; hasAac: boolean }> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const objectUrl = URL.createObjectURL(file);
+    video.preload = 'metadata';
+    video.onloadedmetadata = async () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        resolve({ width: video.videoWidth, height: video.videoHeight, durationSeconds: video.duration, hasH264: hasAsciiToken(bytes, 'avc1') || hasAsciiToken(bytes, 'avc3'), hasAac: hasAsciiToken(bytes, 'mp4a') });
+      } catch {
+        reject(new Error('影片 metadata 讀取失敗。'));
+      }
+    };
+    video.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('影片無法讀取，請確認檔案是可播放的 MP4。')); };
+    video.src = objectUrl;
+  });
+}
 
 function useLegacyArticles(nodesData: GraphNode[]): ArticleItem[] {
   return useMemo(() => buildLegacyArticles(nodesData), [nodesData]);
@@ -47,6 +82,9 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
   const [title, setTitle] = useState('');
   const [excerpt, setExcerpt] = useState('');
   const [markdown, setMarkdown] = useState('');
+  const [articleDocument, setArticleDocument] = useState<ArticleDocument>(createEmptyArticleDocument());
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoSaving, setVideoSaving] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState('');
   const [articleSaving, setArticleSaving] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -71,7 +109,7 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
   const saveDraftSilently = useCallback(async () => {
     if (!editingId || !title.trim() || !markdown.trim() || articleSaving) return;
     setDraftStatus('saving');
-    const result = await updateArticleDraft(editingId, title, excerpt, markdown, selectedNodeId ? [selectedNodeId] : []);
+    const result = await updateArticleDraft(editingId, title, excerpt, buildCurrentDocument(), selectedNodeId ? [selectedNodeId] : []);
     if (result.ok) {
       setDraftStatus('saved');
       setLastSavedAt(new Date().toISOString());
@@ -79,7 +117,7 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
       setDraftStatus('error');
       setNotice(result.message || '自動儲存失敗，請按「儲存草稿」重試。');
     }
-  }, [articleSaving, editingId, excerpt, markdown, selectedNodeId, title]);
+  }, [articleDocument, articleSaving, editingId, excerpt, markdown, selectedNodeId, title, videoUrl]);
 
   useEffect(() => {
     if (!editorOpen || !editingId || !title.trim() || !markdown.trim()) return;
@@ -102,7 +140,7 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
 
   const resetEditor = () => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    setEditorOpen(false); setEditingId(null); setTitle(''); setExcerpt(''); setMarkdown(''); setSelectedNodeId(''); setPreviewOpen(false); setDraftStatus('idle'); setLastSavedAt(null);
+    setEditorOpen(false); setEditingId(null); setTitle(''); setExcerpt(''); setMarkdown(''); setArticleDocument(createEmptyArticleDocument()); setVideoUrl(''); setSelectedNodeId(''); setPreviewOpen(false); setDraftStatus('idle'); setLastSavedAt(null);
   };
 
   const openNewArticle = () => {
@@ -111,13 +149,50 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
 
   const openArticle = (article: EditableArticle) => {
     const document = parseArticleDocument(article.body_json, 'draft');
-    setEditingId(article.id); setTitle(article.title); setExcerpt(article.excerpt); setMarkdown(document.introMarkdown); setSelectedNodeId(article.nodeIds?.[0] || ''); setPreviewOpen(false); setDraftStatus('saved'); setLastSavedAt(article.updated_at || null); setEditorOpen(true); setNotice(null);
+    setEditingId(article.id); setTitle(article.title); setExcerpt(article.excerpt); setMarkdown(document.introMarkdown); setArticleDocument(document); setVideoUrl(document.media.find((media) => media.type === 'video')?.url || ''); setSelectedNodeId(article.nodeIds?.[0] || ''); setPreviewOpen(false); setDraftStatus('saved'); setLastSavedAt(article.updated_at || null); setEditorOpen(true); setNotice(null);
+  };
+
+  const buildCurrentDocument = (): ArticleDocument => ({
+    ...articleDocument,
+    introMarkdown: markdown,
+    media: [
+      ...articleDocument.media.filter((media) => media.type !== 'video'),
+      ...(videoUrl.trim() ? [{ type: 'video' as const, url: videoUrl.trim(), alt: '專題文章影片', caption: '' }] : []),
+    ],
+  });
+
+  const uploadAuthorVideo = async (file: File) => {
+    if (file.type !== 'video/mp4' || !file.name.toLowerCase().endsWith('.mp4')) { setNotice('只支援 MP4 影片。'); return; }
+    if (file.size > 50 * 1024 * 1024) { setNotice('單支影片不可超過 50 MB。'); return; }
+    setVideoSaving(true); setNotice(null);
+    try {
+      const metadata = await readAuthorVideoMetadata(file);
+      if (!metadata.width || !metadata.height || metadata.width > 1280 || metadata.height > 720) throw new Error('影片尺寸不可超過 1280×720（720p）。');
+      if (!Number.isFinite(metadata.durationSeconds) || metadata.durationSeconds <= 0 || metadata.durationSeconds > 300) throw new Error('單支影片長度不可超過 5 分鐘。');
+      if (!metadata.hasH264 || !metadata.hasAac) throw new Error('無法確認影片同時使用 H.264 影像與 AAC 音訊；請重新輸出為 MP4/H.264/AAC。');
+      const initResponse = await fetch('/api/uploadVideo', { method: 'POST', headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: file.name, mimeType: file.type, byteSize: file.size, width: metadata.width, height: metadata.height, durationSeconds: metadata.durationSeconds }) });
+      const initPayload = await initResponse.json().catch(() => ({})) as { uploadId?: string; signedUrl?: string; error?: string };
+      if (!initResponse.ok || !initPayload.uploadId || !initPayload.signedUrl) throw new Error(initPayload.error || '影片上傳連結建立失敗。');
+      const storageResponse = await fetch(initPayload.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'video/mp4', 'x-upsert': 'false' }, body: file });
+      if (!storageResponse.ok) throw new Error('影片檔案直傳失敗，請重新嘗試。');
+      const confirmResponse = await fetch('/api/uploadVideo/confirm', { method: 'POST', headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' }, body: JSON.stringify({ uploadId: initPayload.uploadId }) });
+      const confirmPayload = await confirmResponse.json().catch(() => ({})) as { url?: string; error?: string };
+      if (!confirmResponse.ok || !confirmPayload.url) throw new Error(confirmPayload.error || '影片確認失敗。');
+      setVideoUrl(confirmPayload.url);
+      setArticleDocument((current) => ({ ...current, media: [...current.media.filter((media) => media.type !== 'video'), { type: 'video', url: confirmPayload.url || '', alt: '專題文章影片', caption: '' }] }));
+      setNotice('影片已上傳並完成驗證，記得儲存草稿。');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '影片上傳失敗。');
+    } finally {
+      setVideoSaving(false);
+    }
   };
 
   const saveArticle = async () => {
     if (!title.trim() || !markdown.trim()) { setNotice('請至少填寫文章標題與正文。'); return; }
     setArticleSaving(true); setDraftStatus('saving'); setNotice(null);
-    const result = editingId ? await updateArticleDraft(editingId, title, excerpt, markdown, selectedNodeId ? [selectedNodeId] : []) : await createArticleDraft(title, excerpt, markdown, selectedNodeId ? [selectedNodeId] : []);
+    const currentDocument = buildCurrentDocument();
+    const result = editingId ? await updateArticleDraft(editingId, title, excerpt, currentDocument, selectedNodeId ? [selectedNodeId] : []) : await createArticleDraft(title, excerpt, currentDocument, selectedNodeId ? [selectedNodeId] : []);
     if (!result.ok) {
       setDraftStatus('error'); setNotice(result.message || '文章儲存失敗。');
     } else {
@@ -138,12 +213,12 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
 
   return (
     <div className="mt-10 rounded-3xl border border-[#D1C6B4]/50 bg-white/80 p-5 shadow-sm md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#A27B21]">Author Studio</p><h2 className="mt-1 text-xl font-black">認證作者工作區</h2><p className="mt-2 text-sm leading-6 text-[#4A4238]/70">專題誌適合長篇文章。可以用 Markdown 排版，圖片使用 <code>![圖片](網址)</code>，影片可以貼成 Markdown 連結。</p></div>{verification?.status === 'approved' && <button type="button" onClick={openNewArticle} className="rounded-xl bg-[#1A1612] px-4 py-2 text-sm font-bold text-white">新增長文</button>}</div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#A27B21]">Author Studio</p><h2 className="mt-1 text-xl font-black">認證作者工作區</h2><p className="mt-2 text-sm leading-6 text-[#4A4238]/70">專題誌適合長篇文章。可以用 Markdown 排版，圖片可貼網址；影片可貼 YouTube URL，或上傳 MP4／H.264/AAC／720p／5 分鐘／50 MB 內的自有影片。</p></div>{verification?.status === 'approved' && <button type="button" onClick={openNewArticle} className="rounded-xl bg-[#1A1612] px-4 py-2 text-sm font-bold text-white">新增長文</button>}</div>
       {notice && <div className="mt-4 rounded-xl border border-[#F4D58D] bg-[#FFF9E8] p-3 text-sm text-[#6B5310]">{notice}</div>}
       {!verification || verification.status === 'none' ? <div className="mt-5"><p className="text-sm leading-6 text-[#4A4238]/75">申請通過後，你可以建立、編輯並發布自己的專題文章。</p><textarea value={applicationText} onChange={(e) => setApplicationText(e.target.value)} maxLength={5000} placeholder="請介紹你想寫的主題、內容方向與社群經驗（至少 30 字）" className="mt-3 min-h-28 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm outline-none focus:border-[#A27B21]" /><button type="button" onClick={() => void submitApplication()} disabled={applicationSaving} className="mt-3 rounded-xl bg-[#A27B21] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{applicationSaving ? '送出中…' : '申請認證作者'}</button></div>
         : verification.status === 'pending' ? <p className="mt-5 rounded-xl bg-[#FFF9E8] p-4 text-sm text-[#6B5310]">申請審核中。管理員確認後，就能開啟長文編輯器。</p>
           : verification.status === 'rejected' ? <div className="mt-5"><p className="text-sm text-[#9F1239]">這次申請尚未通過{verification.review_note ? `：${verification.review_note}` : '，你可以補充內容後重新申請。'}</p><textarea value={applicationText} onChange={(e) => setApplicationText(e.target.value)} maxLength={5000} className="mt-3 min-h-28 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm" /><button type="button" onClick={() => void submitApplication()} disabled={applicationSaving} className="mt-3 rounded-xl bg-[#A27B21] px-4 py-2 text-sm font-bold text-white">重新申請</button></div>
-            : <div className="mt-5"><p className="mb-3 rounded-xl bg-[#EEF4EA] p-4 text-sm text-[#47633C]">已通過認證。你的文章會先以草稿保存，再由你確認後發布。</p>{editorOpen && <div className="mb-4 rounded-2xl border border-[#D1C6B4]/60 bg-[#FDFBF7] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-black">{editingId ? '編輯文章' : '新增長文'}</h3><div className="flex items-center gap-3"><span aria-live="polite" className={`text-xs font-bold ${draftStatus === 'error' ? 'text-[#B91C1C]' : 'text-[#64748B]'}`}>{draftStatusLabel}</span><button type="button" onClick={resetEditor} className="text-sm font-bold text-[#4A4238]/60">關閉</button></div></div><div className={previewOpen ? 'mt-4 grid gap-4 lg:grid-cols-2' : 'mt-4'}><div><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={180} placeholder="文章標題" className="w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm" /><input value={excerpt} onChange={(e) => setExcerpt(e.target.value)} maxLength={500} placeholder="文章摘要（最多 500 字）" className="mt-3 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm" /><select value={selectedNodeId} onChange={(e) => setSelectedNodeId(e.target.value)} className="mt-3 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm"><option value="">不指定 Mind Map 節點</option>{nodesData.filter((node) => node.level > 0).map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select><textarea value={markdown} onChange={(e) => setMarkdown(e.target.value)} placeholder={'使用 Markdown 編輯正文\n\n![圖片](https://...)\n\n[觀看影片](https://...)'} className="mt-3 min-h-72 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 font-mono text-sm leading-6" /></div>{previewOpen && <div className="min-h-72 rounded-xl border border-[#D1C6B4]/60 bg-white p-4"><p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-[#A27B21]">Preview / 預覽</p><MarkdownPreview markdown={markdown} /></div>}</div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setPreviewOpen((value) => !value)} className="rounded-xl border border-[#A27B21]/60 bg-[#FFF9E8] px-4 py-2 text-sm font-bold text-[#6B5310]">{previewOpen ? '關閉預覽' : '開啟預覽'}</button><button type="button" onClick={() => void saveArticle()} disabled={articleSaving} className="rounded-xl bg-[#1A1612] px-4 py-2 text-sm font-bold text-white">{articleSaving ? '儲存中…' : '儲存草稿'}</button><button type="button" onClick={resetEditor} className="rounded-xl border border-[#D1C6B4]/70 px-4 py-2 text-sm font-bold">取消</button></div><p className="mt-2 text-xs leading-5 text-[#64748B]">編輯既有草稿時，停止輸入約 1.5 秒會自動儲存；新文章第一次仍請按「儲存草稿」建立文章。</p></div>}{<div className="space-y-2">{myArticles.map((article) => <div key={article.id} className="flex flex-col gap-3 rounded-xl border border-[#D1C6B4]/50 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold">{article.title || '未命名文章'}</p><p className="mt-1 text-xs text-[#4A4238]/60">{article.status === 'published' ? '已發布' : '草稿'} · 更新於 {formatArticleDate(article.updated_at) || '日期未提供'}</p></div><div className="flex gap-2"><button type="button" onClick={() => openArticle(article)} className="rounded-lg border border-[#D1C6B4]/70 px-3 py-1.5 text-xs font-bold">編輯</button>{article.status === 'draft' && <button type="button" onClick={() => void publish(article.id)} disabled={articleSaving} className="rounded-lg bg-[#A27B21] px-3 py-1.5 text-xs font-bold text-white">發布</button>}</div></div>)}{myArticles.length === 0 && <p className="rounded-xl border border-dashed border-[#D1C6B4] p-4 text-sm text-[#4A4238]/60">還沒有自己的文章，按右上角「新增長文」開始。</p>}</div>}</div>}
+            : <div className="mt-5"><p className="mb-3 rounded-xl bg-[#EEF4EA] p-4 text-sm text-[#47633C]">已通過認證。你的文章會先以草稿保存，再由你確認後發布。</p>{editorOpen && <div className="mb-4 rounded-2xl border border-[#D1C6B4]/60 bg-[#FDFBF7] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-black">{editingId ? '編輯文章' : '新增長文'}</h3><div className="flex items-center gap-3"><span aria-live="polite" className={`text-xs font-bold ${draftStatus === 'error' ? 'text-[#B91C1C]' : 'text-[#64748B]'}`}>{draftStatusLabel}</span><button type="button" onClick={resetEditor} className="text-sm font-bold text-[#4A4238]/60">關閉</button></div></div><div className={previewOpen ? 'mt-4 grid gap-4 lg:grid-cols-2' : 'mt-4'}><div><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={180} placeholder="文章標題" className="w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm" /><input value={excerpt} onChange={(e) => setExcerpt(e.target.value)} maxLength={500} placeholder="文章摘要（最多 500 字）" className="mt-3 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm" /><select value={selectedNodeId} onChange={(e) => setSelectedNodeId(e.target.value)} className="mt-3 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 text-sm"><option value="">不指定 Mind Map 節點</option>{nodesData.filter((node) => node.level > 0).map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select><div className="mt-3 rounded-xl border border-[#D1C6B4]/60 bg-[#FFF9E8]/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-black">文章影片</p><p className="mt-1 text-xs text-[#6B5310]/80">可貼 YouTube URL，或上傳一支符合限制的 MP4。</p></div><label className="cursor-pointer rounded-lg bg-[#A27B21] px-3 py-1.5 text-xs font-bold text-white"><span>{videoSaving ? '上傳中…' : '上傳 MP4'}</span><input type="file" accept="video/mp4,.mp4" className="sr-only" disabled={videoSaving} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAuthorVideo(file); event.currentTarget.value = ''; }} /></label></div><input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} className="mt-3 w-full rounded-xl border border-[#D1C6B4]/70 bg-white p-3 text-sm" placeholder="https://www.youtube.com/watch?v=... 或已上傳影片 URL" /></div><textarea value={markdown} onChange={(e) => setMarkdown(e.target.value)} placeholder={'使用 Markdown 編輯正文\n\n![圖片](https://...)\n\n[觀看影片](https://...)'} className="mt-3 min-h-72 w-full rounded-xl border border-[#D1C6B4]/60 bg-white p-3 font-mono text-sm leading-6" /></div>{previewOpen && <div className="min-h-72 rounded-xl border border-[#D1C6B4]/60 bg-white p-4"><p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-[#A27B21]">Preview / 預覽</p><MarkdownPreview markdown={markdown} media={buildCurrentDocument().media} /></div>}</div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setPreviewOpen((value) => !value)} className="rounded-xl border border-[#A27B21]/60 bg-[#FFF9E8] px-4 py-2 text-sm font-bold text-[#6B5310]">{previewOpen ? '關閉預覽' : '開啟預覽'}</button><button type="button" onClick={() => void saveArticle()} disabled={articleSaving} className="rounded-xl bg-[#1A1612] px-4 py-2 text-sm font-bold text-white">{articleSaving ? '儲存中…' : '儲存草稿'}</button><button type="button" onClick={resetEditor} className="rounded-xl border border-[#D1C6B4]/70 px-4 py-2 text-sm font-bold">取消</button></div><p className="mt-2 text-xs leading-5 text-[#64748B]">編輯既有草稿時，停止輸入約 1.5 秒會自動儲存；新文章第一次仍請按「儲存草稿」建立文章。</p></div>}{<div className="space-y-2">{myArticles.map((article) => <div key={article.id} className="flex flex-col gap-3 rounded-xl border border-[#D1C6B4]/50 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold">{article.title || '未命名文章'}</p><p className="mt-1 text-xs text-[#4A4238]/60">{article.status === 'published' ? '已發布' : '草稿'} · 更新於 {formatArticleDate(article.updated_at) || '日期未提供'}</p></div><div className="flex gap-2"><button type="button" onClick={() => openArticle(article)} className="rounded-lg border border-[#D1C6B4]/70 px-3 py-1.5 text-xs font-bold">編輯</button>{article.status === 'draft' && <button type="button" onClick={() => void publish(article.id)} disabled={articleSaving} className="rounded-lg bg-[#A27B21] px-3 py-1.5 text-xs font-bold text-white">發布</button>}</div></div>)}{myArticles.length === 0 && <p className="rounded-xl border border-dashed border-[#D1C6B4] p-4 text-sm text-[#4A4238]/60">還沒有自己的文章，按右上角「新增長文」開始。</p>}</div>}</div>}
     </div>
   );
 }
@@ -159,10 +234,24 @@ function ArticleCard({ article, onOpen }: { article: ArticleItem; onOpen: (id: s
   );
 }
 
-function ArticleReader({ article, onBack, onBackToNode }: { article: ArticleItem; onBack: () => void; onBackToNode?: (nodeId: string) => void }) {
+function ArticleReader({ article, onBack, onBackToNode, isMember }: { article: ArticleItem; onBack: () => void; onBackToNode?: (nodeId: string) => void; isMember: boolean }) {
   const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>({});
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState<ReportCategory>('other');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportNotice, setReportNotice] = useState<string | null>(null);
+  const [reportSaving, setReportSaving] = useState(false);
   const allOpen = article.document.sections.length > 0 && article.document.sections.every((section) => sectionsOpen[section.id] ?? section.defaultOpen);
   const setAllSections = (open: boolean) => setSectionsOpen(Object.fromEntries(article.document.sections.map((section) => [section.id, open])));
+  const submitArticleReport = async () => {
+    if (!isMember || article.source !== 'live' || !reportDetails.trim()) return;
+    setReportSaving(true);
+    setReportNotice(null);
+    const result = await reportForumContent('article', article.id, reportCategory, reportDetails);
+    setReportNotice(result.ok ? '檢舉已送出，管理員會進行查看。' : (result.message || '檢舉送出失敗。'));
+    if (result.ok) { setReportOpen(false); setReportDetails(''); }
+    setReportSaving(false);
+  };
 
   return (
     <section className="h-full overflow-y-auto bg-[#FDFBF7] text-[#1A1612]">
@@ -178,6 +267,7 @@ function ArticleReader({ article, onBack, onBackToNode }: { article: ArticleItem
             <p className="mt-5 max-w-3xl text-base leading-8 text-[#4A4238]/75">{article.excerpt}</p>
             <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs font-bold text-[#4A4238]/55"><span>約 {article.readMinutes} 分鐘閱讀</span>{formatArticleDate(article.publishedAt || article.createdAt) && <span>發布於 {formatArticleDate(article.publishedAt || article.createdAt)}</span>}<span>{article.commentCount} 則留言</span></div>
             {article.tags.length > 0 && <div className="mt-5 flex flex-wrap gap-2">{article.tags.map((tag) => <span key={tag} className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-[#6B5A4A]">#{tag}</span>)}</div>}
+            {isMember && article.source === 'live' && <div className="mt-5"><button type="button" onClick={() => { setReportOpen((value) => !value); setReportNotice(null); }} className="rounded-full border border-[#F4B8C4] bg-[#FFF5F7] px-3 py-1.5 text-xs font-bold text-[#9D174D]">⚑ 檢舉文章</button>{reportNotice && <p className="mt-2 text-xs font-bold text-[#92400E]">{reportNotice}</p>}{reportOpen && <div className="mt-3 rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] p-4"><select value={reportCategory} onChange={(event) => setReportCategory(event.target.value as ReportCategory)} className="w-full rounded-xl border border-[#FCD34D] bg-white p-3 text-sm"><option value="spam">垃圾訊息或廣告</option><option value="harassment">騷擾或霸凌</option><option value="safety">安全風險或危險內容</option><option value="privacy">侵犯隱私</option><option value="illegal">違法內容</option><option value="hate">仇恨或歧視</option><option value="self_harm">自傷相關風險</option><option value="misinformation">明顯錯誤資訊</option><option value="other">其他</option></select><textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={2000} placeholder="補充說明（最多 2,000 字）" className="mt-3 min-h-20 w-full rounded-xl border border-[#FCD34D] bg-white p-3 text-sm" /><div className="mt-3 flex gap-2"><button type="button" onClick={() => void submitArticleReport()} disabled={reportSaving || !reportDetails.trim()} className="rounded-xl bg-[#92400E] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{reportSaving ? '送出中…' : '送出檢舉'}</button><button type="button" onClick={() => setReportOpen(false)} disabled={reportSaving} className="rounded-xl border border-[#FCD34D] px-4 py-2 text-xs font-bold text-[#92400E]">取消</button></div></div>}</div>}
           </header>
           <div className="px-5 py-7 md:px-12 md:py-10">
             {article.document.cover && <MarkdownPreview markdown="" media={[article.document.cover]} />}
@@ -251,7 +341,7 @@ export default function ArticleFeature({ nodesData, initialNodeId = null, onBack
   const updateNodeFilter = (nodeId: string) => startFilterTransition(() => setNodeFilter(nodeId));
   const clearFilters = () => { setSearchQuery(''); startFilterTransition(() => setNodeFilter('all')); };
 
-  if (selectedArticle) return <ArticleReader article={selectedArticle} onBack={() => setSelectedArticleId(null)} onBackToNode={onBackToNode} />;
+  if (selectedArticle) return <ArticleReader article={selectedArticle} onBack={() => setSelectedArticleId(null)} onBackToNode={onBackToNode} isMember={isMember} />;
 
   return (
     <section className="h-full overflow-y-auto bg-[#FDFBF7] text-[#1A1612]"><div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10"><header className="mb-6 rounded-3xl border border-[#D1C6B4]/50 bg-gradient-to-br from-white via-[#FFF9F0] to-[#F5EFE6] p-6 shadow-sm md:mb-8 md:p-10"><div className="max-w-4xl"><p className="mb-3 text-xs font-black uppercase tracking-[0.25em] text-[#A27B21]">KinkFlow / Deep Reading</p><h1 className="text-3xl font-black md:text-5xl">專題誌</h1><p className="mt-4 text-sm leading-7 text-[#4A4238]/75 md:text-base">把一個主題讀深、讀完整。這裡收錄心理、關係、安全與文化脈絡的長文，搭配圖片、影片與可自由收合的章節，讓你按照自己的節奏探索。</p></div><div className="mt-6 flex flex-wrap gap-3 text-xs font-bold text-[#6B5A4A]"><span className="rounded-full bg-white/80 px-3 py-2">{articles.length} 篇專題</span><span className="rounded-full bg-white/80 px-3 py-2">可搜尋全文</span><span className="rounded-full bg-white/80 px-3 py-2">圖片與影片</span><span className="rounded-full bg-white/80 px-3 py-2">章節收合</span></div></header>

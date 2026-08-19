@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getAuthHeaders } from '@/lib/authHeaders';
+import { reportForumContent, type ReportCategory } from '@/lib/data/forum';
 import { Comment, BlueBirdBadge } from '@/components/Comment';
 import { getPostActivityScore, getWafuColor } from '@/lib/constants';
 import type { DiscussionPost } from '@/lib/types';
@@ -24,6 +25,8 @@ type ProfileVisibility = {
   latestPosts: boolean;
   quizResult: boolean;
   radar: boolean;
+  articles: boolean;
+  likes: boolean;
 };
 
 const DEFAULT_PROFILE_VISIBILITY: ProfileVisibility = {
@@ -35,6 +38,8 @@ const DEFAULT_PROFILE_VISIBILITY: ProfileVisibility = {
   latestPosts: true,
   quizResult: true,
   radar: true,
+  articles: true,
+  likes: true,
 };
 
 function normalizeProfileVisibility(value: unknown): ProfileVisibility {
@@ -49,10 +54,13 @@ function normalizeProfileVisibility(value: unknown): ProfileVisibility {
     latestPosts: typeof record.latestPosts === 'boolean' ? record.latestPosts : true,
     quizResult: typeof record.quizResult === 'boolean' ? record.quizResult : true,
     radar: typeof record.radar === 'boolean' ? record.radar : true,
+    articles: typeof record.articles === 'boolean' ? record.articles : true,
+    likes: typeof record.likes === 'boolean' ? record.likes : true,
   };
 }
 
 interface UserProfile {
+  id: string;
   userName: string;
   joinedAt: string;
   topTrait: string;
@@ -65,6 +73,8 @@ interface UserProfile {
   avatarUrl?: string;
   coverUrl?: string;
   visibility: ProfileVisibility;
+  searchable: boolean;
+  articles?: Array<{ id: string; title: string; slug: string; excerpt: string; published_at?: string | null }>;
 }
 
 export default function ProfileModal({ 
@@ -95,6 +105,12 @@ export default function ProfileModal({
   const [editCoverUrl, setEditCoverUrl] = useState('');
   const [editUserName, setEditUserName] = useState('');
   const [visibility, setVisibility] = useState<ProfileVisibility>(DEFAULT_PROFILE_VISIBILITY);
+  const [searchable, setSearchable] = useState(true);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState<ReportCategory>('other');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportNotice, setReportNotice] = useState<string | null>(null);
+  const [reportSaving, setReportSaving] = useState(false);
   const [gender, setGender] = useState('secret');
   const [bdsmRole, setBdsmRole] = useState('Switch');
   const { nodesData } = useSupabaseSync();
@@ -103,6 +119,60 @@ export default function ProfileModal({
   useEffect(() => {
     const fetchProfile = async () => {
       try {
+        const apiName = displayUserName
+          .replace(/ ☑️/g, '')
+          .replace(/ 👻/g, '')
+          .replace(/ 玩家/g, '')
+          .replace(/ 訪客/g, '')
+          .replace(/ 守門人/g, '')
+          .trim();
+        const profileResponse = await fetch(`/api/profiles/${encodeURIComponent(apiName)}`, {
+          headers: await getAuthHeaders(),
+          cache: 'no-store',
+        });
+        if (profileResponse.ok) {
+          const payload = await profileResponse.json() as { profile?: Record<string, unknown> };
+          const apiProfile = payload.profile;
+          if (apiProfile) {
+            const apiQuiz = apiProfile.quizResult && typeof apiProfile.quizResult === 'object' && !Array.isArray(apiProfile.quizResult)
+              ? apiProfile.quizResult as Record<string, unknown>
+              : null;
+            const latestPosts = Array.isArray(apiProfile.latestPosts) ? apiProfile.latestPosts as ProfileDiscussionPost[] : [];
+            const hotPosts = Array.isArray(apiProfile.hotPosts) ? apiProfile.hotPosts as ProfileDiscussionPost[] : [];
+            const rawJoinedAt = typeof apiProfile.joinedAt === 'string' ? apiProfile.joinedAt : '';
+            const nextProfile: UserProfile = {
+              id: typeof apiProfile.id === 'string' ? apiProfile.id : '',
+              userName: typeof apiProfile.username === 'string' ? apiProfile.username : apiName,
+              joinedAt: rawJoinedAt ? new Date(rawJoinedAt).toLocaleDateString('zh-TW') : '',
+              topTrait: typeof apiQuiz?.topTrait === 'string' ? apiQuiz.topTrait : '尚未測驗',
+              totalComments: typeof apiProfile.totalComments === 'number' ? apiProfile.totalComments : latestPosts.length,
+              totalUpvotes: typeof apiProfile.totalUpvotes === 'number' ? apiProfile.totalUpvotes : 0,
+              hotPosts,
+              latestPosts,
+              quizScores: apiQuiz?.scores ?? null,
+              quizAiAnalysis: typeof apiQuiz?.aiAnalysis === 'string' ? apiQuiz.aiAnalysis : '',
+              avatarUrl: typeof apiProfile.avatarUrl === 'string' ? apiProfile.avatarUrl : '',
+              coverUrl: typeof apiProfile.coverUrl === 'string' ? apiProfile.coverUrl : '',
+              visibility: normalizeProfileVisibility(apiProfile.visibility),
+              searchable: apiProfile.searchable !== false,
+              articles: Array.isArray(apiProfile.articles) ? apiProfile.articles as UserProfile['articles'] : [],
+            };
+            setBio(typeof apiProfile.bio === 'string' ? apiProfile.bio : '');
+            setEditAvatarUrl(nextProfile.avatarUrl || '');
+            setEditCoverUrl(nextProfile.coverUrl || '');
+            setGender(typeof apiProfile.gender === 'string' ? apiProfile.gender : 'secret');
+            setBdsmRole(typeof apiProfile.bdsmRole === 'string' ? apiProfile.bdsmRole : 'Switch');
+            setVisibility(nextProfile.visibility);
+            setSearchable(nextProfile.searchable);
+            const { data: layoutRows } = await supabase.from('quiz_content').select('content').eq('key_name', 'profile_layout').limit(1);
+            if (layoutRows?.[0]?.content) setLayoutConfig(layoutRows[0].content);
+            setProfile(nextProfile);
+            return;
+          }
+        } else if (!isGuest) {
+          throw new Error('個人主頁載入失敗，請稍後再試。');
+        }
+
         const cleanName = displayUserName
           .replace(/ ☑️/g, '')
           .replace(/ 👻/g, '')
@@ -140,7 +210,7 @@ export default function ProfileModal({
         let joinedAt = '';
 
         const profileLayout = profileData?.layout_config && typeof profileData.layout_config === 'object' && !Array.isArray(profileData.layout_config)
-          ? profileData.layout_config as { profileMeta?: { coverUrl?: unknown; gender?: unknown; bdsmRole?: unknown; visibility?: unknown } }
+          ? profileData.layout_config as { profileMeta?: { coverUrl?: unknown; gender?: unknown; bdsmRole?: unknown; visibility?: unknown; searchable?: unknown } }
           : null;
         const profileMeta = profileLayout?.profileMeta;
         const fetchedVisibility = normalizeProfileVisibility(profileMeta?.visibility);
@@ -165,6 +235,7 @@ export default function ProfileModal({
         setGender(fetchedGender);
         setBdsmRole(fetchedBdsmRole);
         setVisibility(fetchedVisibility);
+        setSearchable(profileMeta?.searchable !== false);
         
         // 優先從 profiles 的 created_at 獲取加入時間，格式化為 zh-TW
         const rawDate = profileData?.created_at || quizData?.content?.joinedAt;
@@ -205,7 +276,8 @@ export default function ProfileModal({
         const hotPosts = [...posts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0)).slice(0, 5);
 
         setProfile({
-          userName: cleanName,
+          id: typeof profileData?.id === 'string' ? profileData.id : '',
+          userName: typeof profileData?.username === 'string' ? profileData.username : cleanName,
           joinedAt,
           topTrait,
           totalComments,
@@ -217,6 +289,8 @@ export default function ProfileModal({
           avatarUrl: fetchedAvatarUrl,
           coverUrl: fetchedCoverUrl,
           visibility: fetchedVisibility,
+          searchable: profileMeta?.searchable !== false,
+          articles: [],
         });
         
         // 優先讀取使用者專屬設定的 layout mode
@@ -327,7 +401,7 @@ export default function ProfileModal({
       const updateRes = await fetch('/api/updateProfile', {
         method: 'POST',
         headers: await getAuthHeaders(),
-        body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole, visibility })
+        body: JSON.stringify({ userId, targetName, bio, editAvatarUrl, editCoverUrl, gender, bdsmRole, visibility, searchable })
       });
       if (!updateRes.ok) {
         const errorText = await updateRes.text();
@@ -351,10 +425,25 @@ export default function ProfileModal({
   const theme = layoutConfig?.theme || 'default';
   const pStyle = layoutConfig?.profileStyle || 'morandi-classic';
   const canShow = (key: keyof ProfileVisibility): boolean => isOwner || profile?.visibility[key] !== false;
+
+  const submitProfileReport = async () => {
+    if (!profile?.id || isOwner || isGuest || !reportDetails.trim()) return;
+    setReportSaving(true);
+    setReportNotice(null);
+    const result = await reportForumContent('profile', profile.id, reportCategory, reportDetails);
+    setReportNotice(result.ok ? '檢舉已送出，管理員會進行查看。' : (result.message || '檢舉送出失敗。'));
+    if (result.ok) {
+      setReportDetails('');
+      setReportOpen(false);
+    }
+    setReportSaving(false);
+  };
   const moduleVisibility: Record<string, keyof ProfileVisibility> = {
     stats: 'stats',
     hot_posts: 'hotPosts',
     latest_posts: 'latestPosts',
+    likes: 'likes',
+    articles: 'articles',
     quiz_result: 'quizResult',
     radar: 'radar',
   };
@@ -381,7 +470,13 @@ export default function ProfileModal({
     <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm animate-fade-in overflow-y-auto" onClick={onClose}>
       <div className="flex min-h-full items-center justify-center p-4 md:p-8">
         <div className={containerClass} style={containerStyle} onClick={e => e.stopPropagation()}>
-
+          {reportNotice && <div className="mx-6 mt-4 rounded-xl border border-[#FCD34D] bg-[#FFFBEB] p-3 text-sm font-bold text-[#92400E]">{reportNotice}</div>}
+          {reportOpen && !isOwner && !isGuest && <div role="dialog" aria-modal="true" className="mx-6 mt-4 rounded-2xl border border-[#FCD34D] bg-[#FFFBEB] p-4">
+            <div className="flex items-start justify-between gap-3"><div><h2 className="font-black text-[#172033]">檢舉個人主頁</h2><p className="mt-1 text-xs text-[#92400E]">請提供具體原因，內容會先交由管理員審核。</p></div><button type="button" onClick={() => setReportOpen(false)} className="text-sm font-bold text-[#64748B]">關閉</button></div>
+            <select value={reportCategory} onChange={(event) => setReportCategory(event.target.value as ReportCategory)} className="mt-3 w-full rounded-xl border border-[#FCD34D] bg-white p-3 text-sm"><option value="spam">垃圾訊息或廣告</option><option value="harassment">騷擾或霸凌</option><option value="safety">安全風險或危險內容</option><option value="privacy">侵犯隱私</option><option value="illegal">違法內容</option><option value="hate">仇恨或歧視</option><option value="self_harm">自傷相關風險</option><option value="misinformation">明顯錯誤資訊</option><option value="other">其他</option></select>
+            <textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={2000} placeholder="補充說明（最多 2,000 字）" className="mt-3 min-h-24 w-full rounded-xl border border-[#FCD34D] bg-white p-3 text-sm" />
+            <div className="mt-3 flex gap-2"><button type="button" onClick={() => void submitProfileReport()} disabled={reportSaving || !reportDetails.trim()} className="rounded-xl bg-[#92400E] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{reportSaving ? '送出中…' : '送出檢舉'}</button><button type="button" onClick={() => setReportOpen(false)} disabled={reportSaving} className="rounded-xl border border-[#FCD34D] px-4 py-2 text-sm font-bold text-[#92400E]">取消</button></div>
+          </div>}
         
         {(() => {
           const renderModule = (mod: any) => {
@@ -454,7 +549,13 @@ export default function ProfileModal({
                         ) : (
                           <h2 className={`text-xl sm:text-2xl font-black flex items-center gap-2 drop-shadow-md whitespace-nowrap flex-wrap ${isDarkStyle ? 'text-[#FDFBF7]' : 'text-[#1A1612]'}`}>
                             <span>{profile?.userName || userName}</span>
+                                                        {!isOwner && !isGuest && profile?.id && (
+                              <button type="button" onClick={() => { setReportOpen(true); setReportCategory('other'); setReportDetails(''); setReportNotice(null); }} className="text-xs px-2.5 py-1 bg-[#FCE7F3] text-[#9D174D] font-black rounded-full hover:scale-105 transition-transform flex items-center gap-1 shadow-xs shrink-0">
+                                <span>⚑</span><span>檢舉主頁</span>
+                              </button>
+                            )}
                             {userId && !isGuest && (
+
                               <button onClick={() => { setEditUserName((profile?.userName || userName).replace(' ☑️', '').replace(' 👻', '').trim()); setIsEditingBio(true); }} className="text-xs px-2.5 py-1 bg-[#D9B650] text-[#1A1612] font-black rounded-full hover:scale-105 transition-transform flex items-center gap-1 shadow-xs shrink-0">
                                 <span>✏️</span><span>編輯</span>
                               </button>
@@ -533,6 +634,8 @@ export default function ProfileModal({
                               ['latestPosts', '最新留言'],
                               ['quizResult', '測驗結果'],
                               ['radar', '偏好雷達圖'],
+                              ['articles', '專題文章'],
+                              ['likes', '按讚統計'],
                             ] as const).map(([key, label]) => (
                               <button
                                 key={key}
@@ -544,7 +647,10 @@ export default function ProfileModal({
                               </button>
                             ))}
                           </div>
-                          <p className="mt-2 text-[10px] font-semibold text-[#4A4238]/60">全部關閉時，其他人只會看到你的頭像與名稱。</p>
+                          <button type="button" onClick={() => setSearchable((current) => !current)} className={`mt-3 w-full rounded-lg border px-2 py-1.5 text-left text-[11px] font-bold transition ${searchable ? 'border-[#89A090] bg-[#E8F0E5] text-[#36523C]' : 'border-[#D1C6B4]/50 bg-white/60 text-[#7A7065]'}`}>
+                            {searchable ? '允許會員搜尋到我的主頁' : '不出現在會員主頁搜尋結果'}
+                          </button>
+                          <p className="mt-2 text-[10px] font-semibold text-[#4A4238]/60">未公開的區塊只有本人看得到；匿名訪客不會出現在搜尋結果。</p>
                         </div>
                         <div className="flex gap-2 justify-end">
                           <button onClick={() => { setIsEditingBio(false); setBio((profile as any)?.bio || ''); }} className="px-4 py-2 text-[#4A4238]/60 dark:text-[#E5DCD0]/60 font-bold hover:bg-black/5 rounded-xl transition-colors">
@@ -598,10 +704,10 @@ export default function ProfileModal({
                       <div className="text-2xl font-black text-[#D9B650]">{profile?.totalComments}</div>
                       <div className={`text-[11px] font-bold mt-0.5 ${subText}`}>累積發言</div>
                     </div>
-                    <div className={`p-3.5 rounded-2xl flex-1 text-center border shadow-2xs ${cardBg}`}>
+                    {canShow('likes') && <div className={`p-3.5 rounded-2xl flex-1 text-center border shadow-2xs ${cardBg}`}>
                       <div className="text-2xl font-black text-[#D9B650]">{profile?.totalUpvotes}</div>
                       <div className={`text-[11px] font-bold mt-0.5 ${subText}`}>獲得讚數</div>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               );
@@ -635,6 +741,31 @@ export default function ProfileModal({
                       <div key={`latest_${p.id}_${i}`} className="relative group">
                         <Comment post={p} hideActions={true} hideReplies={true} nodeColor={(p as any).nodeColor} currentUserName={userName} theme={pStyle === 'moonlight-gold' ? 'dark' : 'light'} />
                         <button onClick={() => { onClose(); if (onJump && p.nodeId) onJump(p.nodeId, p.id.toString()); }} className="absolute bottom-3 right-3 text-[10px] bg-[#E8C5C8] text-white font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-[#D47A7A] opacity-90 group-hover:opacity-100 transition-opacity">前往參與 ➔</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            if (mod.id === 'likes' && canShow('likes')) {
+              return (
+                <div key={mod.id} className="mt-4 border-t border-[#D1C6B4]/30 pt-4">
+                  <h3 className="mb-3 text-sm font-bold">❤️ 按讚統計</h3>
+                  <p className="rounded-xl border border-[#D1C6B4]/40 bg-white/60 p-3 text-center text-2xl font-black text-[#D9B650]">{profile?.totalUpvotes || 0}</p>
+                </div>
+              );
+            }
+
+            if (mod.id === 'articles' && profile?.articles && profile.articles.length > 0) {
+              return (
+                <div key={mod.id} className="mt-4 border-t border-[#D1C6B4]/30 pt-4">
+                  <h3 className="mb-3 text-sm font-bold">📚 公開專題文章</h3>
+                  <div className="space-y-2">
+                    {profile.articles.slice(0, 5).map((article) => (
+                      <div key={article.id} className="rounded-xl border border-[#D1C6B4]/40 bg-white/60 p-3">
+                        <p className="font-bold">{article.title}</p>
+                        {article.excerpt && <p className="mt-1 line-clamp-2 text-xs opacity-70">{article.excerpt}</p>}
                       </div>
                     ))}
                   </div>

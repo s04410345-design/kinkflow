@@ -16,6 +16,7 @@ import {
   type ForumComment,
   type ForumItem,
   type ReportCategory,
+  type ReportTargetType,
 } from '@/lib/data/forum';
 
 type ForumFeatureProps = {
@@ -90,7 +91,7 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
   const [editingCommentBody, setEditingCommentBody] = useState('');
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [reportTarget, setReportTarget] = useState<{ targetType: 'forum_post' | 'forum_comment'; targetId: string } | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ targetType: ReportTargetType; targetId: string } | null>(null);
   const [reportCategory, setReportCategory] = useState<ReportCategory>('other');
   const [reportDetails, setReportDetails] = useState('');
 
@@ -193,7 +194,7 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
     setSaving(false);
   };
 
-  const openReportDialog = (targetType: 'forum_post' | 'forum_comment', targetId: string) => {
+  const openReportDialog = (targetType: ReportTargetType, targetId: string) => {
     setReportTarget({ targetType, targetId });
     setReportCategory('other');
     setReportDetails('');
