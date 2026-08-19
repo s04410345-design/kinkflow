@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/serverAuth';
+import { getServiceClient, requireAdmin } from '@/lib/serverAuth';
 import { clampText, hasOversizedContent, isRecord } from '@/lib/server/rateLimit';
 
 const REPORT_STATUSES = ['open', 'reviewing', 'resolved', 'dismissed'] as const;
@@ -42,13 +42,29 @@ export async function PATCH(request: Request, context: { params: Promise<{ repor
 
     const contentAction = resolvedAction === 'hide_content' ? 'hidden' : resolvedAction === 'delete_content' ? 'deleted' : resolvedAction === 'restore_content' ? 'published' : null;
     if (contentAction) {
-      const contentTable = current.target_type === 'forum_post' ? 'forum_posts' : current.target_type === 'forum_comment' ? 'forum_comments' : current.target_type === 'article' ? 'articles' : null;
-      if (!contentTable) return NextResponse.json({ error: '這類檢舉對象不支援內容狀態處理。' }, { status: 400 });
-      const contentUpdate = contentTable === 'articles'
-        ? { status: contentAction }
-        : { status: contentAction, deleted_at: contentAction === 'published' ? null : now };
-      const { data: content, error: contentError } = await auth.client.from(contentTable).update(contentUpdate).eq('id', current.target_id).select('id').maybeSingle();
-      if (contentError || !content) return NextResponse.json({ error: '目標內容狀態更新失敗，檢舉尚未完成。' }, { status: 503 });
+      if (current.target_type === 'profile') {
+        const serviceClient = getServiceClient();
+        if (!serviceClient) return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+        const { data: profile, error: profileError } = await serviceClient.from('profiles').select('layout_config').eq('id', current.target_id).maybeSingle();
+        if (profileError || !profile) return NextResponse.json({ error: '個人主頁狀態更新失敗，檢舉尚未完成。' }, { status: 503 });
+        const layoutConfig = profile.layout_config && typeof profile.layout_config === 'object' && !Array.isArray(profile.layout_config)
+          ? { ...(profile.layout_config as Record<string, unknown>) }
+          : {};
+        const currentMeta = layoutConfig.profileMeta && typeof layoutConfig.profileMeta === 'object' && !Array.isArray(layoutConfig.profileMeta)
+          ? { ...(layoutConfig.profileMeta as Record<string, unknown>) }
+          : {};
+        layoutConfig.profileMeta = { ...currentMeta, searchable: contentAction === 'published' };
+        const { error: profileUpdateError } = await serviceClient.from('profiles').update({ layout_config: layoutConfig }).eq('id', current.target_id);
+        if (profileUpdateError) return NextResponse.json({ error: '個人主頁狀態更新失敗，檢舉尚未完成。' }, { status: 503 });
+      } else {
+        const contentTable = current.target_type === 'forum_post' ? 'forum_posts' : current.target_type === 'forum_comment' ? 'forum_comments' : current.target_type === 'article' ? 'articles' : null;
+        if (!contentTable) return NextResponse.json({ error: '這類檢舉對象不支援內容狀態處理。' }, { status: 400 });
+        const contentUpdate = contentTable === 'articles'
+          ? { status: contentAction }
+          : { status: contentAction, deleted_at: contentAction === 'published' ? null : now };
+        const { data: content, error: contentError } = await auth.client.from(contentTable).update(contentUpdate).eq('id', current.target_id).select('id').maybeSingle();
+        if (contentError || !content) return NextResponse.json({ error: '目標內容狀態更新失敗，檢舉尚未完成。' }, { status: 503 });
+      }
     }
 
     const { data: updated, error: updateError } = await auth.client.from('reports').update({
@@ -60,6 +76,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ repor
       updated_at: now,
     }).eq('id', reportId).select('id,status,resolved_action,admin_note,reviewed_by,reviewed_at,updated_at').single();
     if (updateError || !updated) return NextResponse.json({ error: '檢舉狀態更新失敗。' }, { status: 503 });
+
+    if (current.target_type === 'profile' && (status === 'resolved' || status === 'dismissed') && contentAction !== 'hidden' && contentAction !== 'deleted') {
+      const serviceClient = getServiceClient();
+      if (!serviceClient) return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+      const { error: clearError } = await serviceClient
+        .from('report_auto_actions')
+        .update({ cleared_at: now, cleared_by: auth.user.id })
+        .eq('target_type', 'profile')
+        .eq('target_id', current.target_id)
+        .is('cleared_at', null);
+      if (clearError) return NextResponse.json({ error: '自動隱藏審核狀態更新失敗。' }, { status: 503 });
+    }
 
     const { error: eventError } = await auth.client.from('report_events').insert({
       report_id: reportId,
@@ -84,7 +112,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ repor
 
     return NextResponse.json({ ok: true, report: updated });
   } catch (error: unknown) {
-    console.error('Report update API error:', error);
+    console.error('檢舉更新 API 錯誤:', error);
     return NextResponse.json({ error: '處理格式不正確。' }, { status: 400 });
   }
 }

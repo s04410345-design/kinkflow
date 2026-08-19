@@ -19,6 +19,7 @@ import {
   type AdminArticle,
 } from '@/lib/data/adminArticles';
 import MarkdownPreview from '@/components/MarkdownPreview';
+import { getAuthHeaders } from '@/lib/authHeaders';
 
 type ArticleContentEditorProps = {
   nodesData: GraphNode[];
@@ -34,6 +35,51 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
     reader.onerror = () => reject(new Error('圖片讀取失敗。'));
     reader.readAsDataURL(file);
+  });
+}
+
+type VideoMetadata = {
+  width: number;
+  height: number;
+  durationSeconds: number;
+  hasH264: boolean;
+  hasAac: boolean;
+};
+
+function hasAsciiToken(bytes: Uint8Array, token: string): boolean {
+  const target = Array.from(token).map((character) => character.charCodeAt(0));
+  for (let index = 0; index <= bytes.length - target.length; index += 1) {
+    let matches = true;
+    for (let offset = 0; offset < target.length; offset += 1) {
+      if (bytes[index + offset] !== target[offset]) { matches = false; break; }
+    }
+    if (matches) return true;
+  }
+  return false;
+}
+
+function readVideoMetadata(file: File): Promise<VideoMetadata> {
+  return new Promise((resolve, reject) => {
+    const video = window.document.createElement('video');
+    const objectUrl = URL.createObjectURL(file);
+    video.preload = 'metadata';
+    video.onloadedmetadata = async () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        resolve({
+          width: video.videoWidth,
+          height: video.videoHeight,
+          durationSeconds: video.duration,
+          hasH264: hasAsciiToken(bytes, 'avc1') || hasAsciiToken(bytes, 'avc3'),
+          hasAac: hasAsciiToken(bytes, 'mp4a'),
+        });
+      } catch {
+        reject(new Error('影片 metadata 讀取失敗。'));
+      }
+    };
+    video.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('影片無法讀取，請確認檔案是可播放的 MP4。')); };
+    video.src = objectUrl;
   });
 }
 
@@ -211,6 +257,72 @@ export default function ArticleContentEditor({ nodesData, adminLevel, onMessage 
     }
   };
 
+  const uploadVideo = async (file: File, target: MediaTarget) => {
+    if (!canEdit) return;
+    if (file.type !== 'video/mp4' || !file.name.toLowerCase().endsWith('.mp4')) {
+      onMessage('❌ 影片只支援 MP4。');
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      onMessage('❌ 單支影片不可超過 50 MB。');
+      return;
+    }
+    setSaving(true);
+    try {
+      const metadata = await readVideoMetadata(file);
+      if (!metadata.width || !metadata.height || metadata.width > 1280 || metadata.height > 720) {
+        throw new Error('影片尺寸不可超過 1280×720（720p）。');
+      }
+      if (!Number.isFinite(metadata.durationSeconds) || metadata.durationSeconds <= 0 || metadata.durationSeconds > 300) {
+        throw new Error('單支影片長度不可超過 5 分鐘。');
+      }
+      if (!metadata.hasH264 || !metadata.hasAac) {
+        throw new Error('無法確認影片同時使用 H.264 影像與 AAC 音訊；請重新輸出為 MP4/H.264/AAC。');
+      }
+
+      const initResponse = await fetch('/api/uploadVideo', {
+        method: 'POST',
+        headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          byteSize: file.size,
+          width: metadata.width,
+          height: metadata.height,
+          durationSeconds: metadata.durationSeconds,
+        }),
+      });
+      const initPayload = await initResponse.json().catch(() => ({})) as { uploadId?: string; signedUrl?: string; error?: string };
+      if (!initResponse.ok || !initPayload.uploadId || !initPayload.signedUrl) throw new Error(initPayload.error || '影片上傳連結建立失敗。');
+
+      const storageResponse = await fetch(initPayload.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'video/mp4', 'x-upsert': 'false' },
+        body: file,
+      });
+      if (!storageResponse.ok) throw new Error('影片檔案直傳失敗，請重新嘗試。');
+
+      const confirmResponse = await fetch('/api/uploadVideo/confirm', {
+        method: 'POST',
+        headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadId: initPayload.uploadId }),
+      });
+      const confirmPayload = await confirmResponse.json().catch(() => ({})) as { url?: string; error?: string };
+      if (!confirmResponse.ok || !confirmPayload.url) throw new Error(confirmPayload.error || '影片確認失敗。');
+
+      if (target === 'cover') {
+        updateDocument({ cover: { ...(document.cover || emptyMedia()), type: 'video', url: confirmPayload.url, alt: document.cover?.alt || '', caption: document.cover?.caption || '' } });
+      } else {
+        updateSectionMedia(target.sectionIndex, target.mediaIndex, { type: 'video', url: confirmPayload.url });
+      }
+      onMessage('✅ 影片已上傳並完成驗證，記得儲存草稿。');
+    } catch (error) {
+      onMessage(error instanceof Error ? `❌ ${error.message}` : '❌ 影片上傳失敗。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveDraft = async () => {
     if (!canEdit) return;
     if (!title.trim()) { onMessage('❌ 請先填寫專題標題。'); return; }
@@ -300,7 +412,7 @@ export default function ArticleContentEditor({ nodesData, adminLevel, onMessage 
                 <div className="flex flex-wrap items-center justify-between gap-3"><h4 className="font-black">第 {sectionIndex + 1} 章</h4><div className="flex items-center gap-3"><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={section.collapsible} onChange={(event) => updateSection(sectionIndex, { collapsible: event.target.checked })} className="accent-[#A27B21]" />可收合</label><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={section.defaultOpen} onChange={(event) => updateSection(sectionIndex, { defaultOpen: event.target.checked })} className="accent-[#A27B21]" />預設展開</label><button type="button" onClick={() => removeSection(sectionIndex)} className="text-xs font-bold text-[#9F1239]">刪除本章</button></div></div>
                 <input value={section.heading} onChange={(event) => updateSection(sectionIndex, { heading: event.target.value })} className="mt-3 w-full rounded-xl border border-[#D1C6B4]/70 p-3 text-sm font-bold" placeholder="章節標題" />
                 <textarea value={section.markdown} onChange={(event) => updateSection(sectionIndex, { markdown: event.target.value })} className="mt-3 min-h-40 w-full rounded-xl border border-[#D1C6B4]/70 bg-[#FDFBF7] p-3 font-mono text-sm leading-6" placeholder="這一章的詳細內容……" />
-                <div className="mt-3 rounded-xl bg-[#FDFBF7] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-black">本章媒體</p><p className="mt-1 text-xs text-[#4A4238]/60">圖片可直接上傳；影片請貼上 YouTube、Vimeo 或安全的影片網址。</p></div><div className="flex gap-2"><button type="button" onClick={() => addSectionMedia(sectionIndex, 'image')} className="rounded-lg border border-[#D1C6B4]/70 px-3 py-1.5 text-xs font-bold">＋圖片</button><button type="button" onClick={() => addSectionMedia(sectionIndex, 'video')} className="rounded-lg border border-[#D1C6B4]/70 px-3 py-1.5 text-xs font-bold">＋影片</button></div></div>{section.media.map((media, mediaIndex) => <div key={`${section.id}-media-${mediaIndex}`} className="mt-3 grid gap-2 rounded-xl border border-[#D1C6B4]/50 bg-white p-3 md:grid-cols-[100px_1fr_auto]"><div className="space-y-2"><select value={media.type} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { type: event.target.value === 'video' ? 'video' : 'image' })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-xs"><option value="image">圖片</option><option value="video">影片</option></select>{media.type === 'image' && <label className="block cursor-pointer rounded-lg border border-[#D1C6B4]/70 px-2 py-1.5 text-center text-xs font-bold text-[#4A4238]"><span>上傳圖片</span><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadImage(file, { sectionIndex, mediaIndex }); event.currentTarget.value = ''; }} /></label>}</div><div className="space-y-2"><input value={media.url} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { url: event.target.value })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-sm" placeholder={media.type === 'video' ? 'https://www.youtube.com/watch?v=...' : 'https://.../image.webp'} /><input value={media.alt} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { alt: event.target.value })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-sm" placeholder="替代文字／影片描述" /><input value={media.caption} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { caption: event.target.value })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-sm" placeholder="媒體說明（選填）" /></div><button type="button" onClick={() => removeSectionMedia(sectionIndex, mediaIndex)} className="self-start text-xs font-bold text-[#9F1239]">移除</button></div>)}</div>
+                <div className="mt-3 rounded-xl bg-[#FDFBF7] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-black">本章媒體</p><p className="mt-1 text-xs text-[#4A4238]/60">圖片可直接上傳；影片可貼 YouTube／Vimeo 網址，或上傳 MP4、H.264/AAC、720p 內、5 分鐘內、50 MB 內的自有影片。</p></div><div className="flex gap-2"><button type="button" onClick={() => addSectionMedia(sectionIndex, 'image')} className="rounded-lg border border-[#D1C6B4]/70 px-3 py-1.5 text-xs font-bold">＋圖片</button><button type="button" onClick={() => addSectionMedia(sectionIndex, 'video')} className="rounded-lg border border-[#D1C6B4]/70 px-3 py-1.5 text-xs font-bold">＋影片</button></div></div>{section.media.map((media, mediaIndex) => <div key={`${section.id}-media-${mediaIndex}`} className="mt-3 grid gap-2 rounded-xl border border-[#D1C6B4]/50 bg-white p-3 md:grid-cols-[100px_1fr_auto]"><div className="space-y-2"><select value={media.type} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { type: event.target.value === 'video' ? 'video' : 'image' })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-xs"><option value="image">圖片</option><option value="video">影片</option></select>{media.type === 'image' ? <label className="block cursor-pointer rounded-lg border border-[#D1C6B4]/70 px-2 py-1.5 text-center text-xs font-bold text-[#4A4238]"><span>上傳圖片</span><input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadImage(file, { sectionIndex, mediaIndex }); event.currentTarget.value = ''; }} /></label> : <label className="block cursor-pointer rounded-lg border border-[#A27B21]/60 bg-[#FFF9E8] px-2 py-1.5 text-center text-xs font-bold text-[#6B5310]"><span>上傳 MP4</span><input type="file" accept="video/mp4,.mp4" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadVideo(file, { sectionIndex, mediaIndex }); event.currentTarget.value = ''; }} /></label>}</div><div className="space-y-2"><input value={media.url} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { url: event.target.value })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-sm" placeholder={media.type === 'video' ? 'https://www.youtube.com/watch?v=...' : 'https://.../image.webp'} /><input value={media.alt} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { alt: event.target.value })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-sm" placeholder="替代文字／影片描述" /><input value={media.caption} onChange={(event) => updateSectionMedia(sectionIndex, mediaIndex, { caption: event.target.value })} className="w-full rounded-lg border border-[#D1C6B4]/70 p-2 text-sm" placeholder="媒體說明（選填）" /></div><button type="button" onClick={() => removeSectionMedia(sectionIndex, mediaIndex)} className="self-start text-xs font-bold text-[#9F1239]">移除</button></div>)}</div>
               </div>
             ))}
           </div>

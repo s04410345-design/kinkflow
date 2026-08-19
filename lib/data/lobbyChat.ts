@@ -13,10 +13,12 @@ export type LobbyChatMessage = {
 };
 
 export async function fetchLobbyChat(limit = 100): Promise<LobbyChatMessage[]> {
+  const retentionStart = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('lobby_chat')
     .select('id,author_id,text,media_url,parent_id,is_hidden,created_at')
     .eq('is_hidden', false)
+    .gt('created_at', retentionStart)
     .order('created_at', { ascending: true })
     .limit(Math.min(Math.max(limit, 1), 200));
   if (error) return [];

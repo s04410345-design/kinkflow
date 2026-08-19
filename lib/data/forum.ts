@@ -237,7 +237,9 @@ export async function deleteForumComment(commentId: string): Promise<{ ok: boole
 
 export type ReportCategory = 'spam' | 'harassment' | 'safety' | 'privacy' | 'illegal' | 'hate' | 'self_harm' | 'misinformation' | 'other';
 
-export async function reportForumContent(targetType: 'forum_post' | 'forum_comment', targetId: string, category: ReportCategory, details: string): Promise<{ ok: boolean; message?: string }> {
+export type ReportTargetType = 'article' | 'forum_post' | 'forum_comment' | 'realtime_message' | 'profile';
+
+export async function reportForumContent(targetType: ReportTargetType, targetId: string, category: ReportCategory, details: string): Promise<{ ok: boolean; message?: string }> {
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
   if (!accessToken) return { ok: false, message: '請先登入會員才能檢舉。' };

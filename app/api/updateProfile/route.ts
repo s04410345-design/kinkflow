@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { requireUser } from '@/lib/serverAuth';
+import { getServiceClient, requireUser } from '@/lib/serverAuth';
+import { normalizeProfileVisibility } from '@/lib/server/profileVisibility';
 
 type JsonRecord = Record<string, unknown>;
 
 const SUPPORTED_THEMES = new Set(['morandi', 'sakura', 'ukiyo', 'moonlight']);
-const visibilityKeys = ['cover', 'bio', 'identity', 'stats', 'hotPosts', 'latestPosts', 'quizResult', 'radar'] as const;
-type VisibilityKey = typeof visibilityKeys[number];
 
 type ProfileRow = {
   id: string;
@@ -21,20 +20,6 @@ function asRecord(value: unknown): JsonRecord {
 
 function hasOwn(record: JsonRecord, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
-}
-
-function normalizeVisibility(value: unknown, fallback: JsonRecord = {}): Record<VisibilityKey, boolean> {
-  const incoming = asRecord(value);
-  return visibilityKeys.reduce((result, key) => {
-    const incomingValue = incoming[key];
-    const fallbackValue = fallback[key];
-    result[key] = typeof incomingValue === 'boolean'
-      ? incomingValue
-      : typeof fallbackValue === 'boolean'
-        ? fallbackValue
-        : true;
-    return result;
-  }, {} as Record<VisibilityKey, boolean>);
 }
 
 function getProfileMeta(profile: ProfileRow): JsonRecord {
@@ -65,6 +50,8 @@ export async function GET(req: Request) {
       ...(typeof meta.theme === 'string' ? { theme: meta.theme } : {}),
       ...(typeof meta.profileStyle === 'string' ? { profileStyle: meta.profileStyle } : {}),
       ...(typeof meta.updatedAt === 'string' ? { updatedAt: meta.updatedAt } : {}),
+      visibility: normalizeProfileVisibility(meta.visibility),
+      searchable: meta.searchable !== false,
     });
   } catch (error) {
     console.error('[updateProfile] 讀取主題設定時發生未預期錯誤：', error);
@@ -84,7 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '只能修改自己的個人資料' }, { status: 403 });
     }
 
-    const hasProfilePayload = ['targetName', 'bio', 'gender', 'bdsmRole', 'editAvatarUrl', 'editCoverUrl', 'visibility']
+    const hasProfilePayload = ['targetName', 'bio', 'gender', 'bdsmRole', 'editAvatarUrl', 'editCoverUrl', 'visibility', 'searchable']
       .some(key => hasOwn(body, key));
     const requestedTheme = typeof body.theme === 'string' && body.theme.trim()
       ? body.theme.trim().slice(0, 40)
@@ -127,7 +114,27 @@ export async function POST(req: Request) {
 
     const currentLayout = asRecord(currentProfile.layout_config);
     const currentMeta = getProfileMeta(currentProfile);
-    const visibility = normalizeVisibility(body.visibility, asRecord(currentMeta.visibility));
+    const visibility = normalizeProfileVisibility(hasOwn(body, 'visibility') ? body.visibility : currentMeta.visibility);
+    const requestedSearchable = typeof body.searchable === 'boolean'
+      ? body.searchable
+      : currentMeta.searchable !== false;
+    let searchable = requestedSearchable;
+    if (hasProfilePayload && requestedSearchable) {
+      const serviceClient = getServiceClient();
+      if (!serviceClient) return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+      const { data: pendingAutoHide, error: autoHideError } = await serviceClient
+        .from('report_auto_actions')
+        .select('id')
+        .eq('target_type', 'profile')
+        .eq('target_id', auth.user.id)
+        .is('cleared_at', null)
+        .maybeSingle();
+      if (autoHideError) {
+        console.error('[updateProfile] 讀取主頁自動隱藏狀態失敗：', autoHideError.message);
+        return NextResponse.json({ error: '無法確認主頁審核狀態' }, { status: 503 });
+      }
+      if (pendingAutoHide) searchable = false;
+    }
     const layoutConfig: JsonRecord = {
       ...currentLayout,
       profileMeta: {
@@ -137,6 +144,7 @@ export async function POST(req: Request) {
           gender,
           bdsmRole,
           visibility,
+          searchable,
         } : {}),
         ...(requestedTheme !== null ? { theme: requestedTheme } : {}),
         ...(requestedProfileStyle !== null ? { profileStyle: requestedProfileStyle } : {}),
