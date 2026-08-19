@@ -1,11 +1,12 @@
-const CACHE_NAME = 'kinkflow-shell-v1';
+const CACHE_NAME = 'kinkflow-shell-v2';
 const SHELL_ASSETS = [
   '/',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
   '/apple-touch-icon.png',
-  '/images/logo_transparent.png'
+  '/images/logo_transparent.png',
+  '/images/logo_background.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -17,7 +18,15 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys()
+      .then((cacheNames) => Promise.all(
+        cacheNames
+          .filter((cacheName) => cacheName !== CACHE_NAME)
+          .map((cacheName) => caches.delete(cacheName))
+      ))
+      .then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (event) => {

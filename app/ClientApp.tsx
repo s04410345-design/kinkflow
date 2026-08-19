@@ -108,9 +108,24 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
-    void navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
-      console.warn('PWA 服務工作者註冊失敗', error);
-    });
+
+    let refreshing = false;
+    const handleControllerChange = () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    void navigator.serviceWorker.register('/sw.js')
+      .then((registration) => registration.update())
+      .catch((error: unknown) => {
+        console.warn('PWA 服務工作者註冊失敗', error);
+      });
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+    };
   }, []);
   
   // 0=hidden, 1=small, 2=large
