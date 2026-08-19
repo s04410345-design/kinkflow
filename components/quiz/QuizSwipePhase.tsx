@@ -111,7 +111,7 @@ export function QuizSwipePhase({
                 ) : (
                   <span>👑</span>
                 )}
-                {currentNode.actTitle}
+                發起的一端
               </span>
               <span className="text-xs text-[#1A1612] font-bold">1-5分</span>
             </div>
@@ -151,7 +151,7 @@ export function QuizSwipePhase({
                 ) : (
                   <span>🎀</span>
                 )}
-                {currentNode.passTitle}
+                接受的一端
               </span>
               <span className="text-xs text-[#1A1612] font-bold">1-5分</span>
             </div>
