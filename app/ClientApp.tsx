@@ -188,19 +188,11 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
         handleNodeClick(null);
       }
     };
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!selectedNode && activeTab === 'graph') {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
     window.addEventListener('popstate', handlePopState);
-    window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [selectedNode, activeTab, handleNodeClick]);
+  }, [selectedNode, handleNodeClick]);
 
   // ===== Toast =====
   const showToast = (msg: string) => {
