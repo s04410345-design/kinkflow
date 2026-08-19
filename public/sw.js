@@ -6,7 +6,8 @@ const SHELL_ASSETS = [
   '/icon-512.png',
   '/apple-touch-icon.png',
   '/images/logo_transparent.png',
-  '/images/logo_background.png'
+  '/images/logo_background.png',
+  '/images/logo_background_clear.png'
 ];
 
 self.addEventListener('install', (event) => {
