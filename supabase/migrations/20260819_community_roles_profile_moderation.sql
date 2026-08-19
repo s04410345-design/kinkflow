@@ -38,6 +38,8 @@ create index if not exists video_uploads_owner_status_idx
 create index if not exists video_uploads_media_asset_idx
   on public.video_uploads (media_asset_id);
 alter table public.video_uploads enable row level security;
+revoke all on table public.video_uploads from anon, authenticated;
+grant select, insert, update on table public.video_uploads to authenticated;
 create policy "Video upload owners can read own rows"
   on public.video_uploads
   for select to authenticated
@@ -123,14 +125,16 @@ create table if not exists public.report_auto_actions (
 );
 alter table public.report_auto_actions add column if not exists cleared_at timestamptz;
 alter table public.report_auto_actions add column if not exists cleared_by uuid references auth.users(id) on delete set null;
+-- 允許同一目標在管理員清除舊 action 後再次進入五票審核流程。
+drop index if exists public.report_auto_actions_target_idx;
 create unique index if not exists report_auto_actions_target_idx
-  on public.report_auto_actions (target_type, target_id);
-create index if not exists report_auto_actions_created_idx
-  on public.report_auto_actions (created_at desc);
-create index if not exists report_auto_actions_pending_idx
   on public.report_auto_actions (target_type, target_id)
   where cleared_at is null;
+create index if not exists report_auto_actions_created_idx
+  on public.report_auto_actions (created_at desc);
 alter table public.report_auto_actions enable row level security;
+revoke all on table public.report_auto_actions from anon, authenticated;
+grant select on table public.report_auto_actions to authenticated;
 create policy "Administrators can read report auto actions"
   on public.report_auto_actions
   for select to authenticated
@@ -210,6 +214,21 @@ drop trigger if exists reports_auto_hide_trigger on public.reports;
 create trigger reports_auto_hide_trigger
 after insert on public.reports
 for each row execute function private.auto_hide_report_target();
+
+-- 專題誌影片使用獨立 bucket，避免與 quiz-images 共用 MIME／容量設定。
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('article-videos', 'article-videos', true, 52428800, array['video/mp4']::text[])
+on conflict (id) do update
+set name = excluded.name,
+    public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Public can read article video objects" on storage.objects;
+create policy "Public can read article video objects"
+  on storage.objects
+  for select to public
+  using (bucket_id = 'article-videos');
 
 -- Anonymous visitors may post in the lobby, but only the latest 48 hours are
 -- public. Administrators retain access for moderation and incident review.

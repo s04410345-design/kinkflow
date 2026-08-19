@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServiceClient, requireUser } from '@/lib/serverAuth';
 
-const BUCKET_NAME = 'quiz-images';
+const BUCKET_NAME = 'article-videos';
 const MAX_VIDEO_BYTES = 52_428_800;
 const MAX_WIDTH = 1280;
 const MAX_HEIGHT = 720;
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     if (actualBytes !== upload.byte_size || actualBytes <= 0 || actualBytes > MAX_VIDEO_BYTES) {
       return NextResponse.json({ error: '影片檔案大小與上傳宣告不一致，未建立媒體資產。' }, { status: 400 });
     }
-    if (actualMimeType && actualMimeType !== 'video/mp4') {
+    if (actualMimeType !== 'video/mp4') {
       return NextResponse.json({ error: 'Storage 檔案不是有效的 MP4 MIME。' }, { status: 415 });
     }
 
