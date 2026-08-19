@@ -10,20 +10,16 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
   const { userName, userId, isGuest } = useAuth();
-  const [authorNameInput, setAuthorNameInput] = useState('');
+  const [authorNameInput, setAuthorNameInput] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (userName) setAuthorNameInput(userName);
-  }, [userName]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setMessage('');
-      setError('');
-      setSent(false);
-      setIsSending(false);
-    }
-  }, [isOpen]);
+  const handleClose = () => {
+    setMessage('');
+    setError('');
+    setSent(false);
+    setIsSending(false);
+    setAuthorNameInput(null);
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -34,7 +30,7 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
     setError('');
     setIsSending(true);
     try {
-      const activeAuthor = authorNameInput.trim() || userName || '匿名訪客';
+      const activeAuthor = (authorNameInput ?? userName ?? '').trim() || '匿名訪客';
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -76,13 +72,13 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className="absolute inset-0" onClick={handleClose}></div>
       <div className="relative bg-white max-w-2xl w-full rounded-2xl shadow-xl border-2 border-[#E8C5C8] overflow-hidden flex flex-col max-h-[90vh]">
         <div className="p-4 sm:p-6 border-b border-[#E8C5C8]/30 bg-[#FDFBF7] flex justify-between items-center shrink-0">
           <h2 className="text-xl sm:text-2xl font-bold text-[#E08A8A] metallic-text flex items-center gap-2">
             ℹ️ 關於 KinkFlow / 反饋
           </h2>
-          <button onClick={onClose} className="text-[#4A4238]/40 hover:text-[#4A4238] transition-colors p-2 text-xl font-bold rounded-full hover:bg-black/5">
+          <button onClick={handleClose} className="text-[#4A4238]/40 hover:text-[#4A4238] transition-colors p-2 text-xl font-bold rounded-full hover:bg-black/5">
             ✕
           </button>
         </div>
@@ -142,7 +138,7 @@ export default function AboutModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 <span className="text-xs font-black text-[#1A1612] shrink-0" style={{ color: '#1A1612' }}>👤 您的稱呼 / 暱稱：</span>
                 <input
                   type="text"
-                  value={authorNameInput}
+                  value={authorNameInput ?? userName ?? ''}
                   onChange={e => setAuthorNameInput(e.target.value)}
                   placeholder="輸入您的暱稱..."
                   aria-label="您的稱呼或暱稱"

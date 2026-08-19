@@ -314,14 +314,14 @@ export default function ProfileModal({
     if (nodesData.length > 0) {
       fetchProfile();
     }
-  }, [userName, nodesData]);
+  }, [displayUserName, isGuest, nodesData, userName]);
 
-  useEffect(() => {
-    if (isEditingBio && profile) {
-      setEditAvatarUrl(profile.avatarUrl || '');
-      setEditCoverUrl(profile.coverUrl || '');
-    }
-  }, [isEditingBio, profile]);
+  const beginBioEdit = () => {
+    setEditAvatarUrl(profile?.avatarUrl || '');
+    setEditCoverUrl(profile?.coverUrl || '');
+    setEditUserName((profile?.userName || userName).replace(' ☑️', '').replace(' 👻', '').trim());
+    setIsEditingBio(true);
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'avatar' | 'cover') => {
     const file = e.target.files?.[0];
@@ -556,7 +556,7 @@ export default function ProfileModal({
                             )}
                             {userId && !isGuest && (
 
-                              <button onClick={() => { setEditUserName((profile?.userName || userName).replace(' ☑️', '').replace(' 👻', '').trim()); setIsEditingBio(true); }} className="text-xs px-2.5 py-1 bg-[#D9B650] text-[#1A1612] font-black rounded-full hover:scale-105 transition-transform flex items-center gap-1 shadow-xs shrink-0">
+                              <button onClick={beginBioEdit} className="text-xs px-2.5 py-1 bg-[#D9B650] text-[#1A1612] font-black rounded-full hover:scale-105 transition-transform flex items-center gap-1 shadow-xs shrink-0">
                                 <span>✏️</span><span>編輯</span>
                               </button>
                             )}

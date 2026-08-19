@@ -135,18 +135,16 @@ function imageAltInputValue(node: EditableNode, nodeImages: AdminNodeImages, kin
 }
 
 function ImageValidation({ src }: { src: string }) {
-  const [status, setStatus] = useState<ImageLoadStatus>('checking');
+  const [status, setStatus] = useState<ImageLoadStatus>(() => src.trim() ? 'checking' : 'error');
 
   useEffect(() => {
     let cancelled = false;
     if (!src.trim()) {
-      setStatus('error');
       return () => {
         cancelled = true;
       };
     }
 
-    setStatus('checking');
     const probe = new Image();
     probe.onload = () => {
       if (!cancelled) setStatus('loaded');
@@ -171,10 +169,6 @@ function ImageValidation({ src }: { src: string }) {
 
 function PreviewAsset({ src, alt, className }: { src: string; alt: string; className: string }) {
   const [status, setStatus] = useState<ImageLoadStatus>('checking');
-
-  useEffect(() => {
-    setStatus('checking');
-  }, [src]);
 
   return (
     <div className={`relative overflow-hidden bg-[#F5EFE6] ${className}`}>
@@ -209,22 +203,20 @@ export default function NodeContentEditor({
 }: NodeContentEditorProps) {
   const [selectedId, setSelectedId] = useState(preferredNodeId);
   const nodes = useMemo(() => parseNodes(mindmapJson), [mindmapJson]);
+  const activeSelectedId = nodes.some((node) => node.id === selectedId)
+    ? selectedId
+    : nodes.some((node) => node.id === 'bdsm')
+      ? 'bdsm'
+      : nodes[0]?.id || preferredNodeId;
 
   const currentNode = useMemo(
-    () => nodes.find((node) => node.id === selectedId) || null,
-    [nodes, selectedId],
+    () => nodes.find((node) => node.id === activeSelectedId) || null,
+    [activeSelectedId, nodes],
   );
-
-  useEffect(() => {
-    if (nodes.length === 0) return;
-    if (nodes.some((node) => node.id === selectedId)) return;
-    const preferredId = nodes.some((node) => node.id === 'bdsm') ? 'bdsm' : nodes[0].id;
-    setSelectedId(preferredId);
-  }, [nodes, selectedId]);
 
   const handleFieldChange = (field: EditableField, value: unknown) => {
     if (!currentNode) return;
-    const updatedNodes = nodes.map((node) => node.id === selectedId ? { ...node, [field]: value } : node);
+    const updatedNodes = nodes.map((node) => node.id === activeSelectedId ? { ...node, [field]: value } : node);
     setMindmapJson(JSON.stringify(updatedNodes, null, 2));
   };
 
@@ -349,7 +341,7 @@ export default function NodeContentEditor({
                 key={node.id}
                 type="button"
                 onClick={() => setSelectedId(node.id)}
-                className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-all ${selectedId === node.id ? 'border-[#E8C5C8] bg-[#E8C5C8]/40 text-[#4A4238] shadow-sm' : 'border-[#D1C6B4]/30 bg-white text-[#4A4238]/70 hover:border-[#D1C6B4] hover:bg-[#F5EFE6]'}`}
+                className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-all ${activeSelectedId === node.id ? 'border-[#E8C5C8] bg-[#E8C5C8]/40 text-[#4A4238] shadow-sm' : 'border-[#D1C6B4]/30 bg-white text-[#4A4238]/70 hover:border-[#D1C6B4] hover:bg-[#F5EFE6]'}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate">{textValue(node.label) || node.id}</span>
@@ -490,7 +482,7 @@ function ImageEditorBlock({
 }) {
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-      <PreviewAsset src={src} alt={alt} className={previewClassName} />
+      <PreviewAsset key={src} src={src} alt={alt} className={previewClassName} />
       <div className="min-w-0 flex-1">
         <label className="mb-1 block text-xs font-bold text-[#4A4238]">{label}</label>
         <p className="mb-2 text-[10px] text-[#4A4238]/60">{description}</p>
@@ -501,7 +493,7 @@ function ImageEditorBlock({
             <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file); }} disabled={uploading} />
           </label>
         </div>
-        <ImageValidation src={src} />
+        <ImageValidation key={src} src={src} />
         <label className="mt-3 block text-xs font-bold text-[#4A4238]">圖片替代文字（Alt text）</label>
         <input type="text" value={altValue} onChange={(event) => onAltChange(event.target.value)} placeholder={kind === 'icon' ? '例如：BDSM 大廳家徽圖' : '例如：BDSM 大廳情境圖'} className="mt-1 w-full rounded-lg border border-[#D1C6B4]/50 bg-white px-3 py-1.5 text-xs outline-none focus:border-[#E8C5C8]" />
         <p className="mt-1 text-[10px] text-[#4A4238]/60">留白時會使用節點名稱作為前台替代文字。</p>
@@ -530,14 +522,14 @@ function NodePreview({ node, iconSrc, drawerSrc, iconAlt, drawerAlt }: { node: E
           <p className="mb-4 text-xs font-bold tracking-wide text-[#B48B28]">心智圖節點</p>
           <div className="flex min-h-56 flex-col items-center justify-center gap-4">
             <div className="flex items-center justify-center rounded-full border-4 border-white shadow-lg" style={{ width: previewDiameter, height: previewDiameter, backgroundColor: color }}>
-              <PreviewAsset src={iconSrc} alt={iconAlt} className="h-[72%] w-[72%] rounded-full bg-white/60 p-2" />
+              <PreviewAsset key={iconSrc} src={iconSrc} alt={iconAlt} className="h-[72%] w-[72%] rounded-full bg-white/60 p-2" />
             </div>
             <div className="max-w-full rounded-full px-4 py-2 text-center text-sm font-black text-[#362E25]" style={{ backgroundColor: `${color}99` }}>{label}</div>
           </div>
         </div>
 
         <div className="overflow-hidden rounded-xl border border-[#D1C6B4]/30 bg-white/80">
-          <div className="h-40 sm:h-52"><PreviewAsset src={drawerSrc} alt={drawerAlt} className="h-full w-full" /></div>
+          <div className="h-40 sm:h-52"><PreviewAsset key={drawerSrc} src={drawerSrc} alt={drawerAlt} className="h-full w-full" /></div>
           <div className="space-y-3 p-5">
             <p className="text-xs font-black tracking-wide text-[#B48B28]">節點抽屜</p>
             <h4 className="text-2xl font-black text-[#1A1612]">{label}</h4>

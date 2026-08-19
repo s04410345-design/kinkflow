@@ -215,9 +215,9 @@ export default function QuizContentEditor({ quizJson, setQuizJson, onSave, onPub
         
         {/* Sidebar */}
         <div className="w-64 border-r border-[#D1C6B4]/30 overflow-y-auto p-4 flex flex-col gap-2 custom-scrollbar">
-          {activeTab === 'scenarios' && scenarios.map(s => (
+          {activeTab === 'scenarios' && scenarios.map((s, scenarioIndex) => (
             <SidebarBtn 
-              key={s.id || Math.random().toString()} 
+              key={s.id || `scenario-${scenarioIndex}`}
               active={selectedScenarioId === s.id || (!selectedScenarioId && s.id === scenarios[0]?.id)} 
               onClick={() => setSelectedScenarioId(s.id)}
               label={s.title ? s.title : `題 ${(s.id || '').replace('scene', '')}`}

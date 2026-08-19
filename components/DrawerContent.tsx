@@ -48,7 +48,6 @@ function ForumTopicPreview({ node, rankingNode, nodesData, onOpenForumPost, onOp
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     void fetchPublishedForumPosts(nodesData)
       .then((items) => {
         if (!active) return;
@@ -132,16 +131,9 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   const [nodeTab, setNodeTab] = useState<'info' | 'stats' | 'topics'>('info');
   const [isImgShrunk, setIsImgShrunk] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [imgLoaded, setImgLoaded] = useState(false);
+  const [loadedImageSrc, setLoadedImageSrc] = useState<string | null>(null);
+  const imgLoaded = loadedImageSrc === nodeImageToShow;
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setImgLoaded(false);
-  }, [node.image]);
-
-  useEffect(() => {
-    if (node.level === 0 && initialLobbyTab) setLobbyTab(initialLobbyTab);
-  }, [initialLobbyTab, node.level]);
   
   const dbKey = node.level === 0 ? 'lobby_board' : node.id;
   const rawPosts = (appData && appData.discussions && appData.discussions[dbKey]) || [];
@@ -180,7 +172,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
       const total = positive + (s.neutral || 0) + negative;
       return { id: n.id, label: n.label, positive, total, stats: s };
     }).sort((a, b) => b.total - a.total || b.positive - a.positive);
-  }, [appData.stats, nodesData]);
+  }, [appData, nodesData]);
 
   const prevPostsLengthRef = useRef(posts.length);
   const lastSubmitRef = useRef(0);
@@ -197,7 +189,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
         chatEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
       }, 500); // 確保在載入後能滑動到底部
     }
-  }, [posts.length, lobbyTab, nodeTab, node.id, rawPosts.length]);
+  }, [posts.length, lobbyTab, nodeTab, node.id, node.level, rawPosts.length]);
 
   const [hasScrolled, setHasScrolled] = useState(false);
 
@@ -289,7 +281,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
                 key={nodeImageToShow}
                 src={nodeImageToShow} 
                 alt={nodeImageAlt}
-                onLoad={() => setImgLoaded(true)}
+                onLoad={() => setLoadedImageSrc(nodeImageToShow)}
                 className={`w-full h-full object-cover transition-all duration-700 group-hover:scale-105 ${imgLoaded ? 'opacity-100' : 'opacity-100'}`} 
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?q=80&w=1200&auto=format&fit=crop';
@@ -503,6 +495,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
 
             {node.level > 0 && nodeTab === 'topics' && (
               <ForumTopicPreview
+                key={`${node.id}:${rankingRootNode.id}`}
                 node={node}
                 rankingNode={rankingRootNode}
                 nodesData={nodesData}

@@ -30,7 +30,8 @@ export function useAdminRoles(enabled: boolean) {
   }, [enabled]);
 
   useEffect(() => {
-    void refresh();
+    const timer = window.setTimeout(() => { void refresh(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [refresh]);
 
   const save = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {

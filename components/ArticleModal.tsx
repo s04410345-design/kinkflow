@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import MarkdownPreview from '@/components/MarkdownPreview';
 
 interface ArticleModalProps {
@@ -9,30 +9,24 @@ interface ArticleModalProps {
 }
 
 export default function ArticleModal({ isOpen, onClose, title, markdownContent }: ArticleModalProps) {
-  const [show, setShow] = useState(false);
-  const [render, setRender] = useState(false);
-
   useEffect(() => {
-    if (isOpen) {
-      setRender(true);
-      setTimeout(() => setShow(true), 10);
-      document.body.style.overflow = 'hidden';
-    } else {
-      setShow(false);
-      setTimeout(() => setRender(false), 300);
-      document.body.style.overflow = 'auto';
-    }
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
   }, [isOpen]);
 
-  if (!render) return null;
+  if (!isOpen) return null;
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center transition-all duration-300 ${show ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center transition-all duration-300 opacity-100`}>
       {/* 模糊背景 */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
       
       {/* 彈出視窗 */}
-      <div className={`relative bg-[#FDFBF7] w-[95vw] max-w-3xl h-[90vh] md:h-[85vh] rounded-2xl shadow-2xl flex flex-col transform transition-transform duration-300 overflow-hidden border border-[#D1C6B4]/30 ${show ? 'scale-100 translate-y-0' : 'scale-95 translate-y-10'}`}>
+      <div className={`relative bg-[#FDFBF7] w-[95vw] max-w-3xl h-[90vh] md:h-[85vh] rounded-2xl shadow-2xl flex flex-col transform transition-transform duration-300 overflow-hidden border border-[#D1C6B4]/30 scale-100 translate-y-0`}>
         
         {/* 頂部標題與關閉按鈕 */}
         <div className="flex items-center justify-between p-5 border-b border-[#D1C6B4]/20 bg-white/80 shrink-0 sticky top-0 z-10 backdrop-blur-md">

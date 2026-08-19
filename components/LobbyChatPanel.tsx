@@ -30,7 +30,6 @@ export default function LobbyChatPanel({ onClose }: LobbyChatPanelProps) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadMessages = useCallback(async () => {
-    setLoading(true);
     try {
       setMessages(await fetchLobbyChat(100));
       setNotice(null);
@@ -42,11 +41,14 @@ export default function LobbyChatPanel({ onClose }: LobbyChatPanelProps) {
   }, []);
 
   useEffect(() => {
-    void loadMessages();
+    const initialTimer = window.setTimeout(() => { void loadMessages(); }, 0);
     const refreshTimer = window.setInterval(() => {
       if (document.visibilityState !== 'hidden') void loadMessages();
     }, 15000);
-    return () => window.clearInterval(refreshTimer);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(refreshTimer);
+    };
   }, [loadMessages]);
 
   const submitMessage = async () => {

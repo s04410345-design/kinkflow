@@ -22,7 +22,6 @@ export default function MemberManagementPanel() {
   const [memberPostsMap, setMemberPostsMap] = useState<Record<string, MemberPost[]>>({});
 
   const fetchMembersData = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await fetchAdminMembersData();
       setMembers(data.members);
@@ -36,7 +35,8 @@ export default function MemberManagementPanel() {
   }, []);
 
   useEffect(() => {
-    void fetchMembersData();
+    const timer = window.setTimeout(() => { void fetchMembersData(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchMembersData]);
 
   const filteredMembers = members.filter(m => {
