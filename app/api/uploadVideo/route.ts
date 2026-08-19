@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServiceClient, requireUser } from '@/lib/serverAuth';
 import { checkRateLimit, hasOversizedContent, rateLimitResponse } from '@/lib/server/rateLimit';
 
-const BUCKET_NAME = 'quiz-images';
+const BUCKET_NAME = 'article-videos';
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_VIDEO_BYTES = 52_428_800;
 const MAX_WIDTH = 1280;
