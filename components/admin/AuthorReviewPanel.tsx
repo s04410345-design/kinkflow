@@ -16,13 +16,15 @@ export default function AuthorReviewPanel({ onMessage }: { onMessage: (message: 
   const [notes, setNotes] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
-    setLoading(true);
     try { setApplications(await fetchAuthorApplications()); }
     catch { onMessage('讀取認證作者申請失敗，請確認管理員資料庫權限。'); }
     finally { setLoading(false); }
   }, [onMessage]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   const review = async (application: AuthorApplication, status: 'approved' | 'rejected') => {
     setBusyUserId(application.user_id);

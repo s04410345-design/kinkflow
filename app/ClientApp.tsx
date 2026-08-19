@@ -255,7 +255,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
       // supabase.removeChannel(channel);
       clearInterval(fallbackInterval);
     };
-  }, []);
+  }, [setAppData]);
 
   useEffect(() => {
     const openNodeHandler = (e: any) => {

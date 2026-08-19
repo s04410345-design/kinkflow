@@ -254,7 +254,7 @@ export function useSupabaseSync(userId?: string | null, userName?: string | null
       cancelled = true;
       if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
     };
-  }, []);
+  }, [userId, userName]);
 
   return {
     appData,

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { SafeStorage, logToSupabase } from '@/lib/constants';
 
 export default function AgreementModal({ onAgree }: { onAgree: () => void }) {
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -12,11 +12,7 @@ export default function AgreementModal({ onAgree }: { onAgree: () => void }) {
 
   useEffect(() => {
     const agreed = SafeStorage.get('kinkflow_agreed_18_v3');
-    if (!agreed) {
-      setIsVisible(true);
-    } else {
-      onAgree();
-    }
+    if (agreed) onAgree();
   }, [onAgree]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {

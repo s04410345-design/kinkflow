@@ -64,8 +64,7 @@ export async function POST(request: Request) {
     if (upload.status === 'active' && upload.media_asset_id) {
       const { data: existingAsset } = await serviceClient.from('media_assets').select('id,storage_path').eq('id', upload.media_asset_id).eq('owner_id', auth.user.id).maybeSingle();
       if (existingAsset) {
-        const { data: publicData } = serviceClient.storage.from(BUCKET_NAME).getPublicUrl(upload.storage_path);
-        return NextResponse.json({ assetId: existingAsset.id, url: publicData.publicUrl, storagePath: upload.storage_path, alreadyConfirmed: true });
+        return NextResponse.json({ assetId: existingAsset.id, url: `/api/article-videos/${existingAsset.id}`, storagePath: upload.storage_path, alreadyConfirmed: true });
       }
     }
     if (upload.status !== 'pending') return NextResponse.json({ error: '這個影片上傳工作已失效。' }, { status: 409 });
@@ -123,10 +122,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '影片已上傳，但狀態記錄更新失敗，請聯絡管理員。' }, { status: 503 });
     }
 
-    const { data: publicData } = serviceClient.storage.from(BUCKET_NAME).getPublicUrl(upload.storage_path);
     return NextResponse.json({
       assetId: mediaAsset.id,
-      url: publicData.publicUrl,
+      url: `/api/article-videos/${mediaAsset.id}`,
       storagePath: upload.storage_path,
       width: upload.width,
       height: upload.height,

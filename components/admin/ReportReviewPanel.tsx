@@ -46,7 +46,6 @@ export default function ReportReviewPanel({ onMessage }: { onMessage: (message: 
   const getDecision = (reportId: string) => decisions[reportId] || { action: 'none' as ResolutionAction, note: '' };
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       setReports(await fetchAdminReports());
     } catch {
@@ -56,7 +55,10 @@ export default function ReportReviewPanel({ onMessage }: { onMessage: (message: 
     }
   }, [onMessage]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   const resolve = async (report: AdminReport, status: 'resolved' | 'dismissed') => {
     setBusyId(report.id);

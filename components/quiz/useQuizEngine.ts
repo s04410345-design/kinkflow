@@ -162,7 +162,7 @@ export function useQuizEngine(userName: string, showToast: (msg: string) => void
     } finally {
       setIsAiLoading(false);
     }
-  }, [normalizedScores, userName, showToast, isAiLoading, aiAnalysis]);
+  }, [TRAITS_DB, normalizedScores, userName, showToast, isAiLoading, aiAnalysis]);
 
   const finishQuiz = () => {
     setPhase('result');

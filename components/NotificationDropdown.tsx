@@ -18,11 +18,7 @@ export default function NotificationDropdown({ userId, onJump }: { userId?: stri
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    if (!userId) {
-      setNotifications([]);
-      setUnreadCount(0);
-      return;
-    }
+    if (!userId) return;
 
     const fetchNotifications = async () => {
       const { data, error } = await supabase

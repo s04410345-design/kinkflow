@@ -9,7 +9,7 @@
  */
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import type { GraphNode, GraphLink, AppData } from '@/lib/types';
 import { graphNodes, graphLinks, getWafuColor } from '@/lib/constants';
@@ -50,6 +50,46 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
   // ================= 節點座標快取 (防止展開抖動) =================
   const nodePositions = useRef<Record<string, {x: number, y: number}>>({});
 
+  // ================= 節點座標計算（左到右長條多階層樹） =================
+  const staticPositions = useMemo(() => {
+    if (nodesData.length === 0) return {};
+    try {
+      const idSet = new Set(nodesData.map(n => n.id));
+      const root = d3.stratify<GraphNode>()
+        .id(d => d.id)
+        .parentId(d => {
+          if (d.id === 'bdsm') return undefined;
+          return (d.parent && idSet.has(d.parent)) ? d.parent : 'bdsm';
+        })(nodesData);
+      const layoutRoot = d3.tree<GraphNode>().nodeSize([180, 360])(root);
+      const rootY = layoutRoot.x;
+      const getColumnId = (d: d3.HierarchyPointNode<GraphNode>): string => {
+        let current: d3.HierarchyPointNode<GraphNode> = d;
+        while (current.parent && current.depth > 1) current = current.parent;
+        return current.id || 'bdsm';
+      };
+      const nodesArr = layoutRoot.descendants().map(d => {
+        const tx = d.y;
+        const ty = d.x - rootY;
+        return { ...d.data, id: d.id, targetX: tx, targetY: ty, x: d.data.fx ?? tx, y: d.data.fy ?? ty, fx: d.data.fx, fy: d.data.fy, radius: d.data.radius || (d.depth === 0 ? 50 : 38), depth: d.depth, colId: getColumnId(d) };
+      });
+      const crossLinks: Array<{ source: string; target: string }> = [];
+      nodesData.forEach(node => {
+        if (node.crossLinks && Array.isArray(node.crossLinks)) {
+          node.crossLinks.forEach(targetId => {
+            if (nodesData.some(n => n.id === targetId)) crossLinks.push({ source: node.id, target: targetId });
+          });
+        }
+      });
+      const pos: Record<string, { x: number; y: number; depth?: number; colId?: string }> = {};
+      nodesArr.forEach(n => { if (n.id) pos[n.id] = { x: n.targetX, y: n.targetY, depth: n.depth, colId: n.colId }; });
+      return { pos, crossLinks };
+    } catch (error: unknown) {
+      console.error('長條心智圖座標計算失敗', error);
+      return { pos: {}, crossLinks: [] };
+    }
+  }, [nodesData]);
+
   // ================= 展開/收合狀態 =================
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['bdsm', 'community_safety', 'bondage', 'ds_main', 'sm_main', 'sensory_deprivation', 'scenario_play', 'mental_control', 'consensus_risk', 'diverse_relations']));
   
@@ -71,7 +111,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
     if (rootNode) handlePanToNode(rootNode, newScale, targetY);
   };
 
-  const handlePanToNode = (d: GraphNode, scaleOverride?: number, customTargetY?: number) => {
+  const handlePanToNode = useCallback((d: GraphNode, scaleOverride?: number, customTargetY?: number) => {
     if (!svgRef.current || !zoomRef.current) return;
     const svg = d3.select(svgRef.current);
     const target = staticPositions?.pos?.[d.id] || {x: 0, y: 0};
@@ -92,7 +132,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
       .scale(scale);
       
     svg.transition().duration(800).call(zoomRef.current.transform, newTransform);
-  };
+  }, [staticPositions]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     // Only capture if clicking on the drag handle area (or we can just track globally in the drawer wrapper)
@@ -137,71 +177,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
          setTimeout(() => handlePanToNode(nodeData), 100);
       }
     }
-  }, [selectedNode?.id, targetPostId, nodesData]);
-
-  // ================= 節點座標計算（左到右長條多階層樹） =================
-  const staticPositions = useMemo(() => {
-    if (nodesData.length === 0) return {};
-    try {
-      const idSet = new Set(nodesData.map(n => n.id));
-      const root = d3.stratify<GraphNode>()
-        .id(d => d.id)
-        .parentId(d => {
-          if (d.id === 'bdsm') return undefined;
-          return (d.parent && idSet.has(d.parent)) ? d.parent : 'bdsm';
-        })(nodesData);
-      const layoutRoot = d3.tree<GraphNode>().nodeSize([180, 360])(root);
-      const rootY = layoutRoot.x;
-
-      const getColumnId = (d: d3.HierarchyPointNode<GraphNode>): string => {
-        let current: d3.HierarchyPointNode<GraphNode> = d;
-        while (current.parent && current.depth > 1) current = current.parent;
-        return current.id || 'bdsm';
-      };
-
-      const nodesArr = layoutRoot.descendants().map(d => {
-        const tx = d.y;
-        const ty = d.x - rootY;
-        return {
-          ...d.data,
-          id: d.id,
-          targetX: tx,
-          targetY: ty,
-          x: d.data.fx ?? tx,
-          y: d.data.fy ?? ty,
-          fx: d.data.fx,
-          fy: d.data.fy,
-          radius: d.data.radius || (d.depth === 0 ? 50 : 38),
-          depth: d.depth,
-          colId: getColumnId(d),
-        };
-      });
-
-      // 產生交叉連線（crossLinks）
-      const crossLinks: Array<{ source: string; target: string }> = [];
-      nodesData.forEach(node => {
-        if (node.crossLinks && Array.isArray(node.crossLinks)) {
-          node.crossLinks.forEach(targetId => {
-            if (nodesData.some(n => n.id === targetId)) {
-              crossLinks.push({ source: node.id, target: targetId });
-            }
-          });
-        }
-      });
-
-      const pos: Record<string, { x: number; y: number; depth?: number; colId?: string }> = {};
-      nodesArr.forEach(n => {
-        if (n.id) {
-          pos[n.id] = { x: n.targetX, y: n.targetY, depth: n.depth, colId: n.colId };
-        }
-      });
-
-      return { pos, crossLinks };
-    } catch (error: unknown) {
-      console.error('長條心智圖座標計算失敗', error);
-      return { pos: {}, crossLinks: [] };
-    }
-  }, [nodesData]);
+  }, [handlePanToNode, nodesData, selectedNode, targetPostId]);
 
   useEffect(() => {
     if (!svgRef.current) return;

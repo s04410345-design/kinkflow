@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import type { QuizSwipeQuestion } from '../../lib/types';
 import { useQuizConfig } from '../QuizContext';
@@ -27,7 +27,7 @@ export function QuizSwipePhase({
   const [activeScore, setActiveScore] = useState<number | null>(null);
   const [passiveScore, setPassiveScore] = useState<number | null>(null);
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     if (activeScore !== null && passiveScore !== null) {
       onSwipe({ active: activeScore, passive: passiveScore });
       // Reset for next node (will happen fast, but just in case)
@@ -36,7 +36,7 @@ export function QuizSwipePhase({
         setPassiveScore(null);
       }, 300);
     }
-  };
+  }, [activeScore, onSwipe, passiveScore]);
 
   useEffect(() => {
     if (activeScore !== null && passiveScore !== null && !isSwipeLeaving) {
@@ -45,7 +45,7 @@ export function QuizSwipePhase({
       }, 200); // 短暫延遲讓使用者看到點擊狀態
       return () => clearTimeout(timer);
     }
-  }, [activeScore, passiveScore, isSwipeLeaving]);
+  }, [activeScore, handleSubmit, isSwipeLeaving, passiveScore]);
 
   const scoreLabels = cardsConfig?.scoreLabels || ['排斥', '無感', '中立', '好奇', '渴望'];
 

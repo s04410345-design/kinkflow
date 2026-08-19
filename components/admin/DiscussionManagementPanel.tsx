@@ -16,7 +16,6 @@ export default function DiscussionManagementPanel() {
   const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
 
   const fetchDiscussions = useCallback(async () => {
-    setLoading(true);
     try {
       const result = await fetchAdminDiscussionItems();
       setNodeNames(result.nodeNames);
@@ -31,7 +30,8 @@ export default function DiscussionManagementPanel() {
   }, []);
 
   useEffect(() => {
-    void fetchDiscussions();
+    const timer = window.setTimeout(() => { void fetchDiscussions(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchDiscussions]);
 
   const handleDeletePost = async (post: PostItem) => {

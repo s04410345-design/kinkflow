@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   DEFAULT_PROFILE_LAYOUT,
   fetchProfileLayout,
@@ -15,11 +15,7 @@ export default function ProfileLayoutEditor() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    fetchConfig();
-  }, []);
-
-  const fetchConfig = async () => {
+  const fetchConfig = useCallback(async () => {
     setLoading(true);
     try {
       setConfig(await fetchProfileLayout());
@@ -28,7 +24,12 @@ export default function ProfileLayoutEditor() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchConfig(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchConfig]);
 
   const handleSave = async () => {
     setSaving(true);

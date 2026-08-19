@@ -12,16 +12,16 @@ export function useAppBootstrap({ setAppData }: UseAppBootstrapOptions) {
 
   useEffect(() => {
     let cancelled = false;
-
-    setIsMounted(true);
-
-    const cachedData = loadCachedAppData();
-    if (cachedData && !cancelled) {
-      setAppData(cachedData);
-    }
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      setIsMounted(true);
+      const cachedData = loadCachedAppData();
+      if (cachedData) setAppData(cachedData);
+    }, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [setAppData]);
 

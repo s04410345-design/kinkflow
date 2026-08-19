@@ -38,7 +38,6 @@ export default function AnalyticsDashboardPanel() {
   const [chartTab, setChartTab] = useState<'five_cats' | 'top_10' | 'bottom_10' | 'axes_10'>('five_cats');
 
   const fetchAnalyticsData = useCallback(async () => {
-    setRefreshing(true);
     try {
       const data = await fetchAdminAnalyticsData();
       setLogs(data.logs);
@@ -55,8 +54,14 @@ export default function AnalyticsDashboardPanel() {
     }
   }, []);
 
-  useEffect(() => {
+  const handleRefresh = () => {
+    setRefreshing(true);
     void fetchAnalyticsData();
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchAnalyticsData(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchAnalyticsData]);
 
   const { fiveCategoriesData, top10Popular, bottom10Unpopular, tenAxesData } = useMemo(
@@ -120,7 +125,7 @@ export default function AnalyticsDashboardPanel() {
         </div>
 
         <button
-          onClick={fetchAnalyticsData}
+          onClick={handleRefresh}
           disabled={loading || refreshing}
           className="px-4 py-2.5 bg-[#F5EFE6] hover:bg-[#E8C5C8]/30 text-[#4A4238] font-bold rounded-xl text-xs transition-all border border-[#D1C6B4]/40 flex items-center gap-1.5"
         >

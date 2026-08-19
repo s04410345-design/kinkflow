@@ -30,6 +30,15 @@ export default function StyleConfigModal({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
+  const applyThemeToDom = (theme: string) => {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (theme === 'moonlight') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -55,17 +64,6 @@ export default function StyleConfigModal({
       cancelled = true;
     };
   }, [userName, userId]);
-
-  const applyThemeToDom = (theme: string) => {
-    document.documentElement.setAttribute('data-theme', theme);
-    if (theme === 'moonlight') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
-
-
 
   const handleSave = async () => {
     setSaving(true);

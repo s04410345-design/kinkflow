@@ -96,8 +96,6 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
   const [reportDetails, setReportDetails] = useState('');
 
   const loadPosts = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError(null);
     try {
       setLivePosts(await fetchPublishedForumPosts(nodesData));
     } catch (error) {
@@ -108,23 +106,46 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
     }
   }, [nodesData]);
 
-  useEffect(() => { void loadPosts(); }, [loadPosts]);
+  useEffect(() => {
+    let active = true;
+    void fetchPublishedForumPosts(nodesData)
+      .then((items) => {
+        if (!active) return;
+        setLivePosts(items);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setLivePosts([]);
+        setLoadError(error instanceof Error ? error.message : '論壇內容暫時無法載入，請稍後再試。');
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => { active = false; };
+  }, [nodesData]);
 
   const items = livePosts;
   const visibleItems = useMemo(() => sortForumItems(activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId), sortMode), [activeNodeId, items, sortMode]);
   const selectedPost = items.find((post) => String(post.id) === String(selectedPostId)) || null;
+  const commentsForSelectedPost = selectedPost && typeof selectedPost.id === 'string' && !selectedPost.id.startsWith('legacy') ? comments : [];
 
   useEffect(() => {
     if (!initialPostId || !items.some((post) => String(post.id) === String(initialPostId))) return;
-    setActiveNodeId('all');
-    setSortMode('hot');
-    setSelectedPostId(initialPostId);
-    onInitialPostOpened?.();
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setActiveNodeId('all');
+      setSortMode('hot');
+      setSelectedPostId(initialPostId);
+      onInitialPostOpened?.();
+    });
+    return () => { active = false; };
   }, [initialPostId, items, onInitialPostOpened]);
   const selectedPostIsOwner = Boolean(currentUserId && selectedPost?.authorId && selectedPost.authorId === currentUserId);
 
   useEffect(() => {
-    if (!selectedPost || typeof selectedPost.id !== 'string' || selectedPost.id.startsWith('legacy')) { setComments([]); return; }
+    if (!selectedPost || typeof selectedPost.id !== 'string' || selectedPost.id.startsWith('legacy')) return;
     void fetchForumComments(selectedPost.id)
       .then(setComments)
       .catch((error: unknown) => {
@@ -256,13 +277,13 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
             </header>
             <div className="px-5 py-7 text-base leading-8 text-[#263449] md:px-10 md:py-10"><p className="whitespace-pre-wrap">{content.body}</p><DiscussionMedia post={selectedPost} /></div>
             <section className="border-t border-[#E2E8F0] bg-[#F8FAFC] px-5 py-6 md:px-10">
-              <h2 className="text-lg font-black">留言討論（{comments.length}）</h2>
+              <h2 className="text-lg font-black">留言討論（{commentsForSelectedPost.length}）</h2>
               <div className="mt-4 space-y-3">
-                {comments.map((comment) => {
+                {commentsForSelectedPost.map((comment) => {
                   const isCommentOwner = Boolean(currentUserId && comment.author_id === currentUserId);
                   return <div key={comment.id} className="rounded-2xl bg-white p-4"><div className="flex items-start justify-between gap-3">{editingCommentId === comment.id ? <div className="flex-1"><textarea value={editingCommentBody} onChange={(e) => setEditingCommentBody(e.target.value)} maxLength={3000} className="min-h-20 w-full rounded-xl border border-[#CBD5E1] p-3 text-sm" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => void saveCommentEdit()} disabled={saving} className="rounded-lg bg-[#172033] px-3 py-1.5 text-xs font-bold text-white">儲存</button><button type="button" onClick={() => setEditingCommentId(null)} className="rounded-lg border border-[#CBD5E1] px-3 py-1.5 text-xs font-bold">取消</button></div></div> : <p className="flex-1 whitespace-pre-wrap text-sm leading-6 text-[#334155]">{comment.body_text}</p>}<div className="flex shrink-0 flex-wrap gap-1">{isCommentOwner && editingCommentId !== comment.id && <><button type="button" onClick={() => { setEditingCommentId(comment.id); setEditingCommentBody(comment.body_text); }} className="text-xs font-bold text-[#475569]">編輯</button><button type="button" onClick={() => void removeComment(comment.id)} disabled={saving} className="text-xs font-bold text-[#B91C1C]">刪除</button></>}{isMember && !isCommentOwner && <button type="button" onClick={() => openReportDialog('forum_comment', comment.id)} disabled={saving} className="text-xs font-bold text-[#92400E]">檢舉</button>}</div></div><p className="mt-2 text-xs text-[#94A3B8]">{formatForumDate(comment.created_at)}</p></div>;
                 })}
-                {comments.length === 0 && <p className="text-sm text-[#64748B]">目前還沒有留言。</p>}
+                {commentsForSelectedPost.length === 0 && <p className="text-sm text-[#64748B]">目前還沒有留言。</p>}
               </div>
               {isMember ? <div className="mt-5 flex flex-col gap-2 sm:flex-row"><textarea value={commentText} onChange={(e) => setCommentText(e.target.value)} maxLength={3000} placeholder="寫下你的留言…" className="min-h-24 flex-1 rounded-xl border border-[#CBD5E1] bg-white p-3 text-sm outline-none focus:border-[#172033]" /><button type="button" disabled={saving} onClick={() => void submitComment()} className="rounded-xl bg-[#172033] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '送出中…' : '送出留言'}</button></div> : <div className="mt-4 rounded-xl border border-dashed border-[#CBD5E1] bg-white p-4 text-sm text-[#64748B]">登入會員後即可參與討論。</div>}
             </section>
