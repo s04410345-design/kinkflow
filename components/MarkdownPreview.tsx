@@ -13,7 +13,8 @@ function isSafeUrl(value: string | undefined): boolean {
 }
 
 function ArticleMediaBlock({ media }: { media: ArticleMedia }) {
-  if (!isSafeUrl(media.url)) return null;
+  const videoUrl = media.assetId ? `/api/article-videos/${encodeURIComponent(media.assetId)}` : media.url;
+  if (media.type === 'image' && !isSafeUrl(media.url)) return null;
   if (media.type === 'image') {
     return (
       <figure className="my-6 overflow-hidden rounded-2xl border border-[#D1C6B4]/50 bg-[#FDFBF7]">
@@ -23,7 +24,7 @@ function ArticleMediaBlock({ media }: { media: ArticleMedia }) {
     );
   }
 
-  const embedUrl = getArticleVideoEmbedUrl(media.url);
+  const embedUrl = media.assetId ? null : getArticleVideoEmbedUrl(media.url);
   return (
     <figure className="my-6 overflow-hidden rounded-2xl border border-[#D1C6B4]/50 bg-[#1A1612]">
       {embedUrl ? (
@@ -37,9 +38,9 @@ function ArticleMediaBlock({ media }: { media: ArticleMedia }) {
             className="h-full w-full border-0"
           />
         </div>
-      ) : isDirectArticleVideoUrl(media.url) ? (
+      ) : media.assetId || isDirectArticleVideoUrl(media.url) ? (
         <video controls playsInline preload="metadata" poster={media.posterUrl} className="max-h-[680px] w-full bg-black">
-          <source src={media.url} />
+          <source src={videoUrl} />
           你的瀏覽器不支援影片播放。
         </video>
       ) : (

@@ -9,6 +9,7 @@ export type ArticleMedia = {
   alt: string;
   caption: string;
   posterUrl?: string;
+  assetId?: string;
 };
 
 export type ArticleSection = {
@@ -65,6 +66,8 @@ type LiveArticle = {
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:']);
 const VIDEO_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'youtu.be', 'vimeo.com', 'www.vimeo.com']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PRIVATE_VIDEO_PATH_RE = /^\/api\/article-videos\/[0-9a-f-]+(?:\?.*)?$/i;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -72,6 +75,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback;
+}
+
+function asUuid(value: unknown): string | null {
+  return typeof value === 'string' && UUID_RE.test(value) ? value : null;
+}
+
+function isPrivateVideoPath(value: string): boolean {
+  return PRIVATE_VIDEO_PATH_RE.test(value);
 }
 
 function asBoolean(value: unknown, fallback = false): boolean {
@@ -84,6 +95,7 @@ function asNumber(value: unknown, fallback: number): number {
 
 function toSafeUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length === 0 || value.length > 2000) return null;
+  if (isPrivateVideoPath(value)) return value;
   try {
     const url = new URL(value);
     return SAFE_PROTOCOLS.has(url.protocol) ? url.toString() : null;
@@ -97,6 +109,7 @@ export function isSafeArticleUrl(value: string | undefined): boolean {
 }
 
 export function getArticleVideoEmbedUrl(value: string): string | null {
+  if (isPrivateVideoPath(value)) return null;
   const safeUrl = toSafeUrl(value);
   if (!safeUrl) return null;
   const url = new URL(safeUrl);
@@ -115,6 +128,7 @@ export function getArticleVideoEmbedUrl(value: string): string | null {
 }
 
 export function isDirectArticleVideoUrl(value: string): boolean {
+  if (isPrivateVideoPath(value)) return true;
   const safeUrl = toSafeUrl(value);
   if (!safeUrl) return false;
   return /\.(mp4|webm|ogg)(?:$|[?#])/i.test(new URL(safeUrl).pathname);
@@ -124,8 +138,10 @@ function parseMedia(value: unknown): ArticleMedia[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item): ArticleMedia[] => {
     const record = asRecord(item);
-    const url = toSafeUrl(record.url);
     const type = record.type === 'video' ? 'video' : 'image';
+    const assetId = type === 'video' ? asUuid(record.assetId) : null;
+    const rawUrl = asString(record.url);
+    const url = assetId ? `/api/article-videos/${assetId}` : toSafeUrl(rawUrl);
     if (!url) return [];
     return [{
       type,
@@ -133,6 +149,7 @@ function parseMedia(value: unknown): ArticleMedia[] {
       alt: asString(record.alt, type === 'image' ? '專題文章圖片' : '專題文章影片'),
       caption: asString(record.caption),
       ...(toSafeUrl(record.posterUrl) ? { posterUrl: toSafeUrl(record.posterUrl) || undefined } : {}),
+      ...(assetId ? { assetId } : {}),
     }];
   });
 }

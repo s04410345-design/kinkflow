@@ -6,6 +6,7 @@ import {
   parseArticleDocument,
   type ArticleDocument,
 } from '@/lib/data/articles';
+import { bindArticleVideoAssets } from '@/lib/data/articleVideoBindings';
 
 export type AdminArticleStatus = 'draft' | 'published' | 'hidden' | 'deleted';
 
@@ -160,7 +161,11 @@ export async function saveAdminArticleDraft(input: SaveAdminArticleInput): Promi
     const { error: insertLinksError } = await supabase.from('article_node_links').insert(uniqueNodeIds.map((nodeId) => ({ article_id: articleId, node_id: nodeId, relation_type: 'primary' })));
     if (insertLinksError) return { ok: false, articleId, message: errorMessage(insertLinksError, '文章已保存，但節點關聯更新失敗。') };
   }
-  return { ok: true, articleId };
+  const savedArticleId = articleId;
+  if (!savedArticleId) return { ok: false, message: '文章 ID 建立失敗。' };
+  const binding = await bindArticleVideoAssets(savedArticleId, input.document);
+  if (!binding.ok) return { ok: false, articleId: savedArticleId, message: binding.message };
+  return { ok: true, articleId: savedArticleId };
 }
 
 export async function publishAdminArticle(articleId: string): Promise<{ ok: boolean; message?: string }> {

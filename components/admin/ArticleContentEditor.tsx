@@ -307,13 +307,14 @@ export default function ArticleContentEditor({ nodesData, adminLevel, onMessage 
         headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
         body: JSON.stringify({ uploadId: initPayload.uploadId }),
       });
-      const confirmPayload = await confirmResponse.json().catch(() => ({})) as { url?: string; error?: string };
-      if (!confirmResponse.ok || !confirmPayload.url) throw new Error(confirmPayload.error || '影片確認失敗。');
+      const confirmPayload = await confirmResponse.json().catch(() => ({})) as { assetId?: string; url?: string; error?: string };
+      if (!confirmResponse.ok || !confirmPayload.url || !confirmPayload.assetId) throw new Error(confirmPayload.error || '影片確認失敗。');
+      const privateVideoUrl = `/api/article-videos/${confirmPayload.assetId}`;
 
       if (target === 'cover') {
-        updateDocument({ cover: { ...(document.cover || emptyMedia()), type: 'video', url: confirmPayload.url, alt: document.cover?.alt || '', caption: document.cover?.caption || '' } });
+        updateDocument({ cover: { ...(document.cover || emptyMedia()), type: 'video', url: privateVideoUrl, assetId: confirmPayload.assetId, alt: document.cover?.alt || '', caption: document.cover?.caption || '' } });
       } else {
-        updateSectionMedia(target.sectionIndex, target.mediaIndex, { type: 'video', url: confirmPayload.url });
+        updateSectionMedia(target.sectionIndex, target.mediaIndex, { type: 'video', url: privateVideoUrl, assetId: confirmPayload.assetId });
       }
       onMessage('✅ 影片已上傳並完成驗證，記得儲存草稿。');
     } catch (error) {
