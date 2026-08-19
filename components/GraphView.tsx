@@ -273,8 +273,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
         .attr("y", -460)
         .attr("width", 920)
         .attr("height", 920)
-        .attr("href", "/images/logo_transparent.png")
-        .attr("opacity", 0.40)
+        .attr("href", "/images/logo_background.png")
+        .attr("opacity", 0.28)
         .style("filter", "drop-shadow(0 0 8px rgba(184,134,11,0.20))")
         .style("pointer-events", "none");
 
