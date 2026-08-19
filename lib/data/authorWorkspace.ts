@@ -6,6 +6,7 @@ import {
   parseArticleDocument,
   type ArticleDocument,
 } from '@/lib/data/articles';
+import { bindArticleVideoAssets } from '@/lib/data/articleVideoBindings';
 
 export type AuthorVerificationStatus = 'pending' | 'approved' | 'rejected' | 'none';
 
@@ -91,6 +92,8 @@ export async function createArticleDraft(title: string, excerpt: string, documen
     const links = await supabase.from('article_node_links').insert(uniqueNodeIds.map((nodeId) => ({ article_id: data.id, node_id: nodeId, relation_type: 'primary' })));
     if (links.error) return { ok: false, message: errorMessage(links.error, '文章建立了，但節點關聯失敗，請稍後從編輯器補上。'), articleId: data.id };
   }
+  const binding = await bindArticleVideoAssets(data.id, document);
+  if (!binding.ok) return { ok: false, articleId: data.id, message: binding.message };
   return { ok: true, articleId: data.id };
 }
 
@@ -110,6 +113,8 @@ export async function updateArticleDraft(articleId: string, title: string, excer
     const { error: insertLinksError } = await supabase.from('article_node_links').insert(uniqueNodeIds.map((nodeId) => ({ article_id: articleId, node_id: nodeId, relation_type: 'primary' })));
     if (insertLinksError) return { ok: false, message: errorMessage(insertLinksError, '文章已儲存，但節點關聯更新失敗。') };
   }
+  const binding = await bindArticleVideoAssets(articleId, document);
+  if (!binding.ok) return { ok: false, message: binding.message };
   return { ok: true, articleId };
 }
 
