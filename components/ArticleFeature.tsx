@@ -107,6 +107,15 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
   }, []);
 
+  const buildCurrentDocument = useCallback((): ArticleDocument => ({
+    ...articleDocument,
+    introMarkdown: markdown,
+    media: [
+      ...articleDocument.media.filter((media) => media.type !== 'video'),
+      ...(videoUrl.trim() ? [{ type: 'video' as const, url: videoUrl.trim(), assetId: videoAssetId || undefined, alt: '專題文章影片', caption: '' }] : []),
+    ],
+  }), [articleDocument, markdown, videoAssetId, videoUrl]);
+
   const saveDraftSilently = useCallback(async () => {
     if (!editingId || !title.trim() || !markdown.trim() || articleSaving) return;
     setDraftStatus('saving');
@@ -118,7 +127,7 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
       setDraftStatus('error');
       setNotice(result.message || '自動儲存失敗，請按「儲存草稿」重試。');
     }
-  }, [articleDocument, articleSaving, editingId, excerpt, markdown, selectedNodeId, title, videoAssetId, videoUrl]);
+  }, [articleSaving, buildCurrentDocument, editingId, excerpt, markdown, selectedNodeId, title]);
 
   useEffect(() => {
     if (!editorOpen || !editingId || !title.trim() || !markdown.trim()) return;
@@ -153,15 +162,6 @@ function AuthorWorkspace({ nodesData, isMember, verification, setVerification }:
     const video = document.media.find((media) => media.type === 'video');
     setEditingId(article.id); setTitle(article.title); setExcerpt(article.excerpt); setMarkdown(document.introMarkdown); setArticleDocument(document); setVideoUrl(video?.url || ''); setVideoAssetId(video?.assetId || null); setSelectedNodeId(article.nodeIds?.[0] || ''); setPreviewOpen(false); setDraftStatus('saved'); setLastSavedAt(article.updated_at || null); setEditorOpen(true); setNotice(null);
   };
-
-  const buildCurrentDocument = (): ArticleDocument => ({
-    ...articleDocument,
-    introMarkdown: markdown,
-    media: [
-      ...articleDocument.media.filter((media) => media.type !== 'video'),
-      ...(videoUrl.trim() ? [{ type: 'video' as const, url: videoUrl.trim(), assetId: videoAssetId || undefined, alt: '專題文章影片', caption: '' }] : []),
-    ],
-  });
 
   const uploadAuthorVideo = async (file: File) => {
     if (file.type !== 'video/mp4' || !file.name.toLowerCase().endsWith('.mp4')) { setNotice('只支援 MP4 影片。'); return; }
