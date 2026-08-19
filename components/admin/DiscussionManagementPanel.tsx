@@ -211,7 +211,7 @@ export default function DiscussionManagementPanel() {
                   {!p.isReply && (
                     <span className="flex items-center gap-1">
                       <MessageSquare className="w-3.5 h-3.5 text-[#E8C5C8]" />
-                      {p.replies?.length || 0} 則回覆
+                      {p.replyCount ?? p.replies?.length ?? 0} 則回覆
                     </span>
                   )}
                 </div>

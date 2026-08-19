@@ -173,17 +173,19 @@ function parseLog(row: unknown, index: number): AnalyticsLog | null {
   };
 }
 
-function parseDiscussion(row: unknown, index: number): AnalyticsDiscussion | null {
+function parseDiscussion(row: unknown, index: number, authorNames: Map<string, string>): AnalyticsDiscussion | null {
   const record = asRecord(row);
   const rawId = record.id;
   const id = typeof rawId === 'string' || typeof rawId === 'number' ? rawId : `discussion-${index}`;
+  const authorId = typeof record.author_id === 'string' ? record.author_id : '';
+  const createdAt = typeof record.created_at === 'string' ? record.created_at : null;
   return {
     id,
     node_id: typeof record.node_id === 'string' ? record.node_id : undefined,
-    author: typeof record.author === 'string' ? record.author : undefined,
+    author: authorNames.get(authorId) || (authorId ? `會員 ${authorId.slice(0, 8)}` : undefined),
     text: typeof record.text === 'string' ? record.text : undefined,
-    timestamp: typeof record.timestamp === 'number' || typeof record.timestamp === 'string' ? record.timestamp : null,
-    created_at: typeof record.created_at === 'string' ? record.created_at : null,
+    timestamp: createdAt,
+    created_at: createdAt,
   };
 }
 
@@ -261,17 +263,20 @@ function buildFeedbackList(logs: AnalyticsLog[], discussions: AnalyticsDiscussio
 }
 
 export async function fetchAdminAnalyticsData(): Promise<AdminAnalyticsData> {
-  const [{ data: logRows, error: logError }, { data: contentRows, error: contentError }, { data: discussionRows, error: discussionError }] = await Promise.all([
+  const [{ data: logRows, error: logError }, { data: contentRows, error: contentError }, { data: discussionRows, error: discussionError }, { data: profileRows, error: profileError }] = await Promise.all([
     supabase.from('visitor_logs').select('*').order('created_at', { ascending: false }).limit(5000),
     supabase.from('quiz_content').select('key_name,content').limit(2000),
-    supabase.from('discussions').select('*').limit(5000),
+    supabase.from('discussions').select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at').limit(5000),
+    supabase.from('profiles').select('id,username').limit(5000),
   ]);
   if (logError) throw logError;
   if (contentError) throw contentError;
   if (discussionError) throw discussionError;
+  if (profileError) throw profileError;
 
+  const authorNames = new Map((profileRows || []).map((profile) => [String(profile.id), typeof profile.username === 'string' ? profile.username : '匿名']));
   const logs = (logRows || []).map(parseLog).filter((log): log is AnalyticsLog => log !== null);
-  const discussions = (discussionRows || []).map(parseDiscussion).filter((item): item is AnalyticsDiscussion => item !== null);
+  const discussions = (discussionRows || []).map((row, index) => parseDiscussion(row, index, authorNames)).filter((item): item is AnalyticsDiscussion => item !== null);
   const nodeStatsContent: Record<string, VoteBreakdown> = {};
   let mindmapNodes: GraphNode[] = [];
 

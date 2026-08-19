@@ -14,11 +14,13 @@ import ReportReviewPanel from '@/components/admin/ReportReviewPanel';
 import MemberManagementPanel from '@/components/admin/MemberManagementPanel';
 import NodeContentEditor from '@/components/admin/NodeContentEditor';
 import QuizContentEditor from '@/components/admin/QuizContentEditor';
+import ArticleContentEditor from '@/components/admin/ArticleContentEditor';
+import { graphNodes as defaultGraphNodes } from '@/lib/constants';
 import VisitorLogsPanel from '@/components/admin/VisitorLogsPanel';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { useAdminWorkspace } from '@/hooks/useAdminWorkspace';
 
-type AdminTab = 'analytics' | 'cms_nodes' | 'cms_quiz' | 'users' | 'discussions' | 'reports' | 'comments' | 'authors' | 'admins';
+type AdminTab = 'analytics' | 'cms_nodes' | 'cms_quiz' | 'cms_articles' | 'users' | 'discussions' | 'reports' | 'comments' | 'authors' | 'admins';
 
 export default function AdminDashboard() {
   const { isAuth, adminLevel, adminEmail, authError, isChecking, logout } = useAdminAuth();
@@ -88,6 +90,7 @@ export default function AdminDashboard() {
             {tabButton('analytics', '統計數據中心')}
             {tabButton('cms_nodes', '節點內容編輯')}
             {tabButton('cms_quiz', '測驗系統編輯')}
+            {tabButton('cms_articles', '專題誌管理')}
             {tabButton('users', '會員管理')}
             {tabButton('discussions', '討論區與留言管理')}
             {tabButton('reports', '檢舉審核')}
@@ -117,11 +120,13 @@ export default function AdminDashboard() {
             mindmapJson={workspace.mindmapJson}
             setMindmapJson={workspace.setMindmapJson}
             onSave={workspace.handleSave}
+            onPublish={workspace.publishNodes}
             saving={workspace.saving}
             nodeImages={workspace.nodeImages}
             setNodeImages={workspace.setNodeImages}
             uploadingState={workspace.uploadingState}
             handleFileUpload={workspace.handleFileUpload}
+            preferredNodeId="community_safety"
           />
         ))}
 
@@ -132,9 +137,18 @@ export default function AdminDashboard() {
             quizJson={workspace.quizJson}
             setQuizJson={workspace.setQuizJson}
             onSave={workspace.handleSave}
+            onPublish={workspace.publishQuiz}
             saving={workspace.saving}
           />
         ))}
+
+        {activeTab === 'cms_articles' && (
+          <ArticleContentEditor
+            nodesData={defaultGraphNodes}
+            adminLevel={adminLevel}
+            onMessage={workspace.setMessage}
+          />
+        )}
 
         {activeTab === 'discussions' && <DiscussionManagementPanel />}
         {activeTab === 'reports' && <ReportReviewPanel onMessage={workspace.setMessage} />}

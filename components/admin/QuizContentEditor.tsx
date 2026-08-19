@@ -9,11 +9,12 @@ interface QuizContentEditorProps {
   setQuizJson: (val: string) => void;
   onSave: (key: string, data: string, isJson?: boolean) => Promise<void>;
   saving: boolean;
+  onPublish: () => Promise<void>;
 }
 
 import { SCENARIO_GRAPH, CARDS, TRAITS_DB, ENDINGS_DB } from '@/lib/quizData';
 
-export default function QuizContentEditor({ quizJson, setQuizJson, onSave, saving }: QuizContentEditorProps) {
+export default function QuizContentEditor({ quizJson, setQuizJson, onSave, onPublish, saving }: QuizContentEditorProps) {
   const [activeTab, setActiveTab] = useState<'intro' | 'scenarios' | 'cards' | 'traits' | 'endings' | 'result' | 'assets' | 'analyzer'>('intro');
   
   // 選擇的項目 ID
@@ -177,7 +178,14 @@ export default function QuizContentEditor({ quizJson, setQuizJson, onSave, savin
           disabled={saving}
           className="shrink-0 bg-[#4A4238] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-[#4A4238]/80 transition-all disabled:opacity-50 flex items-center gap-2"
         >
-          {saving ? '儲存中...' : '💾 儲存測驗設定'}
+          {saving ? '儲存中...' : '💾 儲存測驗草稿'}
+        </button>
+        <button
+          onClick={() => void onPublish()}
+          disabled={saving}
+          className="shrink-0 bg-[#B8860B] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-[#9A7208] transition-all disabled:opacity-50 flex items-center gap-2"
+        >
+          {saving ? '處理中...' : '🚀 發布到前台'}
         </button>
       </div>
 

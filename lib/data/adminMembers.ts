@@ -135,8 +135,8 @@ function buildUserContentMap(rows: unknown[]): Record<string, UnknownRecord> {
 
 export async function fetchAdminMembersData(): Promise<AdminMembersData> {
   const [{ data: profiles, error: profilesError }, { data: discussions, error: discussionsError }, { data: quizResults }, { data: userContents }] = await Promise.all([
-    supabase.from('profiles').select('id,username,user_name,name,email,avatar_url,cover_url,bio,intro,created_at,joined_at').limit(5000),
-    supabase.from('discussions').select('id,author,text,body,node_id,timestamp,created_at,upvotes').limit(5000),
+    supabase.from('profiles').select('id,username,avatar_url,bio,layout_config,created_at').limit(5000),
+    supabase.from('discussions').select('id,node_id,author_id,text,media_url,parent_id,is_hidden,reach_score,created_at').is('parent_id', null).limit(5000),
     supabase.from('quiz_results').select('id,user_id,user_name,top_traits,scores,created_at').limit(5000),
     supabase.from('quiz_content').select('key_name,content').like('key_name', 'user_%').limit(5000),
   ]);
@@ -144,8 +144,23 @@ export async function fetchAdminMembersData(): Promise<AdminMembersData> {
   if (discussionsError) throw discussionsError;
 
   const contentMap = buildUserContentMap(userContents || []);
+  const profileNamesById = new Map<string, string>();
+  (profiles || []).forEach((row) => {
+    const record = asRecord(row);
+    const id = asString(record.id);
+    const username = asString(record.username);
+    if (id && username) profileNamesById.set(id, username);
+  });
   const memberPostsMap: Record<string, MemberPost[]> = {};
-  (discussions || []).map(normalisePost).filter((post): post is MemberPost => post !== null).forEach((post) => {
+  (discussions || []).map((row, index) => {
+    const record = asRecord(row);
+    const authorId = asString(record.author_id);
+    return normalisePost({
+      ...record,
+      author: authorId ? profileNamesById.get(authorId) : undefined,
+      upvotes: record.reach_score,
+    }, index);
+  }).filter((post): post is MemberPost => post !== null).forEach((post) => {
     if (post.author) addPostAliases(memberPostsMap, post.author, post);
   });
 
@@ -163,19 +178,20 @@ export async function fetchAdminMembersData(): Promise<AdminMembersData> {
   const members: MemberProfile[] = [];
   (profiles || []).forEach((row) => {
     const record = asRecord(row);
-    const rawName = asString(record.username) || asString(record.user_name) || asString(record.name) || asString(record.email)?.split('@')[0] || `會員_${asString(record.id)?.slice(0, 6) || 'unknown'}`;
+    const rawName = asString(record.username) || `會員_${asString(record.id)?.slice(0, 6) || 'unknown'}`;
     const clean = cleanName(rawName);
     if (seenNames.has(clean)) return;
     seenNames.add(clean);
     const content = contentMap[clean] || {};
+    const profileMeta = asRecord(asRecord(record.layout_config).profileMeta);
     const id = asString(record.id) || `profile-${members.length}`;
     members.push({
       id,
       userName: displayName(clean, true),
       avatar_url: asString(record.avatar_url) || asString(content.avatarUrl),
-      cover_url: asString(record.cover_url) || asString(content.coverUrl),
-      bio: asString(record.bio) || asString(record.intro) || asString(content.bio),
-      joinedAt: asDate(record.created_at) || asDate(record.joined_at) || new Date(0).toISOString(),
+      cover_url: asString(profileMeta.coverUrl) || asString(content.coverUrl),
+      bio: asString(record.bio) || asString(content.bio),
+      joinedAt: asDate(record.created_at) || new Date(0).toISOString(),
       isRegistered: true,
     });
   });
