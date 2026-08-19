@@ -25,11 +25,12 @@ type AdminTab = 'analytics' | 'cms_nodes' | 'cms_quiz' | 'cms_articles' | 'users
 export default function AdminDashboard() {
   const { isAuth, adminLevel, adminEmail, authError, isChecking, logout } = useAdminAuth();
   const workspace = useAdminWorkspace(adminLevel, isAuth);
+  const { fetchStats } = workspace;
   const [activeTab, setActiveTab] = useState<AdminTab>('analytics');
 
   useEffect(() => {
-    if (isAuth && activeTab === 'comments') void workspace.fetchStats();
-  }, [activeTab, isAuth, workspace.fetchStats]);
+    if (isAuth && activeTab === 'comments') void fetchStats();
+  }, [activeTab, isAuth, fetchStats]);
 
   const tabButton = (id: AdminTab, label: string) => (
     <button

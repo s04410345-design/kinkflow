@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AuthorName } from '../Comment';
 import { fetchAdminMembersData, type MemberPost, type MemberProfile, type MemberQuizResult } from '@/lib/data/adminMembers';
 
@@ -21,11 +21,7 @@ export default function MemberManagementPanel() {
   const [memberQuizMap, setMemberQuizMap] = useState<Record<string, MemberQuizResult[]>>({});
   const [memberPostsMap, setMemberPostsMap] = useState<Record<string, MemberPost[]>>({});
 
-  useEffect(() => {
-    fetchMembersData();
-  }, []);
-
-  const fetchMembersData = async () => {
+  const fetchMembersData = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchAdminMembersData();
@@ -33,11 +29,15 @@ export default function MemberManagementPanel() {
       setMemberPostsMap(data.memberPostsMap);
       setMemberQuizMap(data.memberQuizMap);
     } catch (error) {
-      console.error('Fetch members failed:', error);
+      console.error('會員資料讀取失敗：', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchMembersData();
+  }, [fetchMembersData]);
 
   const filteredMembers = members.filter(m => {
     const matchSearch = m.userName.toLowerCase().includes(searchTerm.toLowerCase());

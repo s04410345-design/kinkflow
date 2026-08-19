@@ -170,9 +170,9 @@ export default function ProfileModal({
         const rawDate = profileData?.created_at || quizData?.content?.joinedAt;
         joinedAt = rawDate ? new Date(rawDate).toLocaleDateString('zh-TW') : new Date().toLocaleDateString('zh-TW');
 
-        let topTrait = quizData?.content?.top_trait || '尚未測驗';
-        let quizScores = quizData?.content?.scores || null;
-        let quizAiAnalysis = quizData?.content?.aiAnalysis || '';
+        const topTrait = quizData?.content?.top_trait || '尚未測驗';
+        const quizScores = quizData?.content?.scores || null;
+        const quizAiAnalysis = quizData?.content?.aiAnalysis || '';
 
         // 只依 author_id 讀取正式 discussions rows，避免查詢不存在的 author／timestamp 欄位。
         const { data: dbComments } = profileData?.id
@@ -359,7 +359,7 @@ export default function ProfileModal({
     radar: 'radar',
   };
   
-  let containerStyle = {};
+  const containerStyle = {};
   let containerClass = "rounded-[2.5rem] w-full max-w-4xl shadow-2xl relative animate-slide-up border-2 transition-all flex flex-col overflow-hidden";
   
   if (pStyle === 'moonlight-gold') {

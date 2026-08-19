@@ -235,9 +235,9 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
          .style("pointer-events", "all");
 
       const isMobileViewport = width < 768;
-      let initOffsetX = width / 2;
+      const initOffsetX = width / 2;
       // 手機版預留頂部導覽與底部操作區，避免心智圖垂直偏移到可視區外。
-      let initOffsetY = isMobileViewport ? height * 0.46 : height / 2;
+      const initOffsetY = isMobileViewport ? height * 0.46 : height / 2;
       // 長條樹的水平間距約 360px；手機版先聚焦根節點與第一層，後續以縮放查看深層節點。
       const mobileScale = Math.min(0.62, Math.max(0.42, (width - 24) / 760));
       const initScale = isMobileViewport ? mobileScale : 0.72;

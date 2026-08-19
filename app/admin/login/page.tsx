@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -12,16 +12,16 @@ export default function AdminLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const establishAdminSession = async (accessToken: string) => {
+  const establishAdminSession = useCallback(async (accessToken: string) => {
     const response = await fetch("/api/admin/session", {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
       credentials: "include",
     });
     return response.ok;
-  };
+  }, []);
 
-  const checkAdminAndRedirect = async (userId: string, accessToken?: string) => {
+  const checkAdminAndRedirect = useCallback(async (userId: string, accessToken?: string) => {
     const { data, error: roleError } = await supabase
       .from("admin_roles")
       .select("role_level")
@@ -44,7 +44,7 @@ export default function AdminLoginPage() {
 
     router.replace("/admin");
     return true;
-  };
+  }, [establishAdminSession, router]);
 
   useEffect(() => {
     let active = true;
@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
       active = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [checkAdminAndRedirect]);
 
   const handlePasswordLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

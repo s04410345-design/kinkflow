@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServiceClient, requireAdmin } from '@/lib/serverAuth';
 
 export const runtime = 'nodejs';
@@ -9,6 +10,23 @@ type RouteContext = {
 
 function isValidDiscussionId(value: string) {
   return value.length > 0 && value.length <= 128 && /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+async function writeAdminAuditLog(
+  serviceClient: SupabaseClient,
+  adminId: string,
+  targetId: string,
+  targetType: 'discussion' | 'discussion_reply',
+  details: Record<string, unknown>,
+) {
+  const { error } = await serviceClient.from('admin_audit_logs').insert({
+    admin_id: adminId,
+    action: 'delete',
+    target_id: targetId,
+    target_type: targetType,
+    detail_json: details,
+  });
+  return !error;
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
@@ -49,7 +67,20 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Reply not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true, deleted: { discussionId, replyId: deletedReply.id } });
+    const auditLogged = await writeAdminAuditLog(
+      serviceClient,
+      auth.user.id,
+      String(deletedReply.id),
+      'discussion_reply',
+      { discussionId, parentId: deletedReply.parent_id },
+    );
+
+    return NextResponse.json({
+      ok: true,
+      auditLogged,
+      warning: auditLogged ? undefined : '回覆已刪除，但稽核紀錄寫入失敗。',
+      deleted: { discussionId, replyId: deletedReply.id },
+    });
   }
 
   const { data: deleted, error: deleteError } = await serviceClient
@@ -66,5 +97,18 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'Discussion not found' }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true, deleted: { id: deleted.id, node_id: deleted.node_id } });
+  const auditLogged = await writeAdminAuditLog(
+    serviceClient,
+    auth.user.id,
+    String(deleted.id),
+    'discussion',
+    { nodeId: deleted.node_id },
+  );
+
+  return NextResponse.json({
+    ok: true,
+    auditLogged,
+    warning: auditLogged ? undefined : '留言已刪除，但稽核紀錄寫入失敗。',
+    deleted: { id: deleted.id, node_id: deleted.node_id },
+  });
 }

@@ -208,16 +208,6 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  // ===== 預載 html2canvas =====
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !(window as Window & { html2canvas?: unknown }).html2canvas) {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  }, []);
-
   // ===== Supabase Realtime 即時聊天訂閱 (已關閉以避免連線數上限與 Vercel 紅框報錯) =====
   useEffect(() => {
     /*
