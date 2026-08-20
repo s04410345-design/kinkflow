@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import type { GraphNode } from '@/lib/types';
 import {
   buildArticleDraftBody,
   buildPublishedArticleBody,
@@ -6,6 +7,7 @@ import {
   parseArticleDocument,
   type ArticleDocument,
 } from '@/lib/data/articles';
+import { filterValidTopicNodeIds } from '@/lib/mindmap';
 
 export type AuthorVerificationStatus = 'pending' | 'approved' | 'rejected' | 'none';
 
@@ -80,13 +82,16 @@ export async function fetchMyArticles(): Promise<EditableArticle[]> {
   return articles.map((article) => ({ ...article, nodeIds: nodesByArticle.get(article.id) || [] }));
 }
 
-export async function createArticleDraft(title: string, excerpt: string, documentOrMarkdown: ArticleDocument | string, nodeIds: string[] = [], coverMediaId?: string | null): Promise<{ ok: boolean; articleId?: string; message?: string }> {
+export async function createArticleDraft(title: string, excerpt: string, documentOrMarkdown: ArticleDocument | string, nodeIds: string[] = [], coverMediaId?: string | null, nodesData: GraphNode[] = []): Promise<{ ok: boolean; articleId?: string; message?: string }> {
   const userId = await getUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const document = toDocument(documentOrMarkdown);
   const { data, error } = await supabase.from('articles').insert({ author_id: userId, title: title.trim(), slug: `draft-${crypto.randomUUID()}`, excerpt: excerpt.trim(), body_json: buildArticleDraftBody(document, { published: createEmptyArticleDocument() }), cover_media_id: coverMediaId || null, status: 'draft' }).select('id').single();
   if (error || !data?.id) return { ok: false, message: errorMessage(error, '建立文章失敗，請稍後再試。') };
-  const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean).slice(0, 3);
+  const requestedNodeIds = [...new Set(nodeIds)].filter(Boolean);
+  if (requestedNodeIds.length > 3) return { ok: false, message: '最多只能選擇 3 個主題標籤。', articleId: data.id };
+  const uniqueNodeIds = filterValidTopicNodeIds(nodesData, requestedNodeIds);
+  if (requestedNodeIds.length > 0 && uniqueNodeIds.length !== requestedNodeIds.length) return { ok: false, message: '文章標籤只能選擇第 2 或第 3 階節點。', articleId: data.id };
   if (uniqueNodeIds.length) {
     const links = await supabase.from('article_node_links').insert(uniqueNodeIds.map((nodeId) => ({ article_id: data.id, node_id: nodeId, relation_type: 'primary' })));
     if (links.error) return { ok: false, message: errorMessage(links.error, '文章建立了，但節點關聯失敗，請稍後從編輯器補上。'), articleId: data.id };
@@ -94,7 +99,7 @@ export async function createArticleDraft(title: string, excerpt: string, documen
   return { ok: true, articleId: data.id };
 }
 
-export async function updateArticleDraft(articleId: string, title: string, excerpt: string, documentOrMarkdown: ArticleDocument | string, nodeIds: string[] = [], coverMediaId?: string | null): Promise<{ ok: boolean; articleId?: string; message?: string }> {
+export async function updateArticleDraft(articleId: string, title: string, excerpt: string, documentOrMarkdown: ArticleDocument | string, nodeIds: string[] = [], coverMediaId?: string | null, nodesData: GraphNode[] = []): Promise<{ ok: boolean; articleId?: string; message?: string }> {
   const userId = await getUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const { data: current, error: currentError } = await supabase.from('articles').select('body_json').eq('id', articleId).eq('author_id', userId).maybeSingle();
@@ -103,7 +108,10 @@ export async function updateArticleDraft(articleId: string, title: string, excer
   const { error } = await supabase.from('articles').update({ title: title.trim(), excerpt: excerpt.trim(), body_json: buildArticleDraftBody(document, current.body_json), cover_media_id: coverMediaId || null, updated_at: new Date().toISOString() }).eq('id', articleId).eq('author_id', userId).in('status', ['draft', 'published']);
   if (error) return { ok: false, message: errorMessage(error, '儲存文章失敗，請稍後再試。') };
 
-  const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean).slice(0, 3);
+  const requestedNodeIds = [...new Set(nodeIds)].filter(Boolean);
+  if (requestedNodeIds.length > 3) return { ok: false, message: '最多只能選擇 3 個主題標籤。', articleId };
+  const uniqueNodeIds = filterValidTopicNodeIds(nodesData, requestedNodeIds);
+  if (requestedNodeIds.length > 0 && uniqueNodeIds.length !== requestedNodeIds.length) return { ok: false, message: '文章標籤只能選擇第 2 或第 3 階節點。', articleId };
   const { error: deleteLinksError } = await supabase.from('article_node_links').delete().eq('article_id', articleId);
   if (deleteLinksError) return { ok: false, message: errorMessage(deleteLinksError, '文章已儲存，但節點關聯更新失敗。') };
   if (uniqueNodeIds.length) {

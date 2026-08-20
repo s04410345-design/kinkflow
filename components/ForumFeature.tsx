@@ -18,6 +18,7 @@ import {
   type ReportCategory,
   type ReportTargetType,
 } from '@/lib/data/forum';
+import { getMindmapNodePathLabel, getMindmapTopicNodes } from '@/lib/mindmap';
 
 type ForumFeatureProps = {
   nodesData: GraphNode[];
@@ -40,16 +41,16 @@ function DiscussionMedia({ post }: { post: DiscussionPost }) {
 }
 
 function NodePicker({ nodesData, value, onChange }: { nodesData: GraphNode[]; value: string[]; onChange: (next: string[]) => void }) {
-  const nodes = nodesData.filter((node) => node.level > 0).slice(0, 30);
+  const nodes = getMindmapTopicNodes(nodesData).slice(0, 30);
   return (
     <div className="mt-3">
-      <p className="text-xs font-bold text-[#64748B]">選擇節點 Tag（最多 3 個，可不選）</p>
+      <p className="text-xs font-bold text-[#64748B]">選擇主題標籤（第 2／3 階，最多 3 個；不選就是通用）</p>
       <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
         {nodes.map((node) => {
           const selected = value.includes(node.id);
           return (
             <button key={node.id} type="button" onClick={() => onChange(selected ? value.filter((id) => id !== node.id) : value.length < 3 ? [...value, node.id] : value)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${selected ? 'text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`} style={selected ? { backgroundColor: node.color || '#172033' } : undefined}>
-              {node.label}
+              {getMindmapNodePathLabel(nodesData, node.id)}
             </button>
           );
         })}
@@ -111,7 +112,12 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
   useEffect(() => { void loadPosts(); }, [loadPosts]);
 
   const items = livePosts;
-  const visibleItems = useMemo(() => sortForumItems(activeNodeId === 'all' ? items : items.filter((item) => item.nodeId === activeNodeId), sortMode), [activeNodeId, items, sortMode]);
+  const topicNodes = useMemo(() => getMindmapTopicNodes(nodesData), [nodesData]);
+  const visibleItems = useMemo(() => sortForumItems(activeNodeId === 'all' ? items : items.filter((item) => item.topicNodeIds.includes(activeNodeId)), sortMode), [activeNodeId, items, sortMode]);
+
+  useEffect(() => {
+    if (activeNodeId !== 'all' && !topicNodes.some((node) => node.id === activeNodeId)) setActiveNodeId('all');
+  }, [activeNodeId, topicNodes]);
   const selectedPost = items.find((post) => String(post.id) === String(selectedPostId)) || null;
 
   useEffect(() => {
@@ -138,7 +144,7 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
     const body = postBody.trim();
     if (!title || !body) { setNotice('請填寫標題與內容。'); return; }
     setSaving(true); setNotice(null);
-    const result = editingPost && selectedPostId && typeof selectedPostId === 'string' ? await updateForumPost(selectedPostId, title, body) : await createForumPost(title, body, postNodeIds);
+    const result = editingPost && selectedPostId && typeof selectedPostId === 'string' ? await updateForumPost(selectedPostId, title, body) : await createForumPost(title, body, postNodeIds, nodesData);
     if (!result.ok) setNotice(result.message || '發文失敗，請稍後再試。');
     else { setPostTitle(''); setPostBody(''); setPostNodeIds([]); setEditingPost(false); setPostFormOpen(false); await loadPosts(); setNotice(editingPost ? '文章已更新。' : '已成功發表主題。'); }
     setSaving(false);
@@ -276,13 +282,13 @@ export default function ForumFeature({ nodesData, isMember = false, currentUserI
     <section className="h-full overflow-y-auto bg-[#F8FAFC] text-[#172033]">
       <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
         <header className="mb-7 rounded-3xl bg-[#172033] p-6 text-white shadow-sm md:p-10"><p className="mb-3 text-xs font-black uppercase tracking-[0.25em] text-[#FCD34D]">KinkFlow / Community</p><h1 className="text-3xl font-black md:text-5xl">討論版</h1><p className="mt-4 max-w-2xl text-sm leading-7 text-slate-200 md:text-base">會員可以針對主題發文、分享經驗和提問。文章可以貼上節點 Tag，讓討論和心智圖保持連結。</p></header>
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex gap-2 overflow-x-auto pb-1" aria-label="討論節點篩選"><button type="button" onClick={() => setActiveNodeId('all')} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${activeNodeId === 'all' ? 'bg-[#172033] text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`}>全部討論</button>{nodesData.filter((node) => node.level > 0).map((node) => <button key={node.id} type="button" onClick={() => setActiveNodeId(node.id)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${activeNodeId === node.id ? 'text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`} style={activeNodeId === node.id ? { backgroundColor: node.color || '#172033' } : undefined}>{node.label}</button>)}</div><div className="flex gap-2"><button type="button" onClick={() => setSortMode('hot')} className={`rounded-lg px-3 py-2 text-xs font-bold ${sortMode === 'hot' ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-white text-[#64748B]'}`}>熱門</button><button type="button" onClick={() => setSortMode('latest')} className={`rounded-lg px-3 py-2 text-xs font-bold ${sortMode === 'latest' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-white text-[#64748B]'}`}>最新</button></div></div>
+        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex gap-2 overflow-x-auto pb-1" aria-label="討論主題標籤篩選"><button type="button" onClick={() => setActiveNodeId('all')} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${activeNodeId === 'all' ? 'bg-[#172033] text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`}>全部討論</button>{topicNodes.map((node) => <button key={node.id} type="button" onClick={() => setActiveNodeId(node.id)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${activeNodeId === node.id ? 'text-white' : 'border border-[#CBD5E1] bg-white text-[#475569]'}`} style={activeNodeId === node.id ? { backgroundColor: node.color || '#172033' } : undefined}>{getMindmapNodePathLabel(nodesData, node.id)}</button>)}</div><div className="flex gap-2"><button type="button" onClick={() => setSortMode('hot')} className={`rounded-lg px-3 py-2 text-xs font-bold ${sortMode === 'hot' ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-white text-[#64748B]'}`}>熱門</button><button type="button" onClick={() => setSortMode('latest')} className={`rounded-lg px-3 py-2 text-xs font-bold ${sortMode === 'latest' ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-white text-[#64748B]'}`}>最新</button></div></div>
         {notice && <div className="mb-4 rounded-xl border border-[#FCD34D] bg-[#FFFBEB] p-3 text-sm text-[#92400E]">{notice}</div>}
         {isMember && postFormOpen && !editingPost && <div className="mb-5"><PostEditor title={postTitle} body={postBody} setTitle={setPostTitle} setBody={setPostBody} onSave={() => void submitPost()} onCancel={() => setPostFormOpen(false)} saving={saving} nodesData={nodesData} nodeIds={postNodeIds} setNodeIds={setPostNodeIds} editing={false} /></div>}
         <div className="mb-5 flex items-center justify-between rounded-2xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm"><span className="font-bold text-[#334155]">共有 {visibleItems.length} 篇可顯示討論</span>{isMember ? <button type="button" onClick={() => { setEditingPost(false); setPostFormOpen((open) => !open); }} className="rounded-xl bg-[#172033] px-4 py-2 text-xs font-bold text-white">{postFormOpen ? '收起發文' : '發表新主題'}</button> : <span className="text-[#64748B]">登入後可以發文</span>}</div>
         {isLoading && <div className="mb-5 rounded-2xl border border-[#CBD5E1] bg-white p-4 text-sm text-[#64748B]">正在載入正式討論……</div>}
         {loadError && <div role="alert" className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#FECACA] bg-[#FFF1F2] p-4 text-sm text-[#9F1239] sm:flex-row sm:items-center sm:justify-between"><span>{loadError}</span><button type="button" onClick={() => void loadPosts()} className="shrink-0 rounded-xl border border-[#FDA4AF] px-3 py-2 text-xs font-bold">重新載入</button></div>}
-        {visibleItems.length === 0 && !isLoading && !loadError ? <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有正式討論。可以先從心智圖節點開始探索。</div> : visibleItems.length > 0 ? <div className="grid gap-4 lg:grid-cols-2">{visibleItems.map((post) => { const content = extractDiscussionContent(post.text, post.title, post.body, post.media); return <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md"><div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><span className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: post.nodeColor }}>{post.nodeLabel}</span><span>{formatForumDate(post.timestamp)}</span></div><h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2><p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>{content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}<div className="mt-4 flex flex-wrap gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>💬 {post.commentCount} 則留言</span><span>🔥 熱度 {Math.round(post.hotScore)}</span></div></button>; })}</div> : null}
+        {visibleItems.length === 0 && !isLoading && !loadError ? <div className="rounded-3xl border border-dashed border-[#CBD5E1] bg-white p-12 text-center text-sm text-[#64748B]">目前還沒有正式討論。可以先從心智圖節點開始探索。</div> : visibleItems.length > 0 ? <div className="grid gap-4 lg:grid-cols-2">{visibleItems.map((post) => { const content = extractDiscussionContent(post.text, post.title, post.body, post.media); return <button key={String(post.id)} type="button" onClick={() => setSelectedPostId(post.id)} className="rounded-2xl border border-[#CBD5E1] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#94A3B8] hover:shadow-md"><div className="mb-3 flex items-center justify-between gap-3 text-xs font-bold text-[#64748B]"><div className="flex min-w-0 flex-wrap gap-1.5">{post.topicNodeIds.length ? post.topicNodeIds.map((nodeId) => { const tagNode = nodesData.find((node) => node.id === nodeId); return <span key={nodeId} className="rounded-full px-3 py-1 text-white" style={{ backgroundColor: tagNode?.color || post.nodeColor }}>{getMindmapNodePathLabel(nodesData, nodeId)}</span>; }) : <span className="rounded-full bg-[#64748B] px-3 py-1 text-white">通用</span>}</div><span className="shrink-0">{formatForumDate(post.timestamp)}</span></div><h2 className="text-lg font-black leading-snug text-[#172033]">{content.title}</h2><p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-[#64748B]">{content.body}</p>{content.media?.length ? <p className="mt-2 text-xs font-bold text-[#475569]">附有 {content.media.length} 個媒體附件</p> : null}<div className="mt-4 flex flex-wrap gap-3 text-xs font-bold text-[#64748B]"><span>作者 {post.author || '匿名會員'}</span><span>💬 {post.commentCount} 則留言</span><span>🔥 熱度 {Math.round(post.hotScore)}</span></div></button>; })}</div> : null}
       </div>
     </section>
   );

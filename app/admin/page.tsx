@@ -15,7 +15,7 @@ import MemberManagementPanel from '@/components/admin/MemberManagementPanel';
 import NodeContentEditor from '@/components/admin/NodeContentEditor';
 import QuizContentEditor from '@/components/admin/QuizContentEditor';
 import ArticleContentEditor from '@/components/admin/ArticleContentEditor';
-import { graphNodes as defaultGraphNodes } from '@/lib/constants';
+import { MINDMAP_V2_NODES, validateMindmapNodes } from '@/lib/mindmap';
 import VisitorLogsPanel from '@/components/admin/VisitorLogsPanel';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { useAdminWorkspace } from '@/hooks/useAdminWorkspace';
@@ -26,6 +26,8 @@ export default function AdminDashboard() {
   const { isAuth, adminLevel, adminEmail, authError, isChecking, logout } = useAdminAuth();
   const workspace = useAdminWorkspace(adminLevel, isAuth);
   const { fetchStats } = workspace;
+  const articleNodesValidation = validateMindmapNodes(workspace.mindmapJson);
+  const articleNodes = articleNodesValidation.ok ? articleNodesValidation.nodes : MINDMAP_V2_NODES;
   const [activeTab, setActiveTab] = useState<AdminTab>('analytics');
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export default function AdminDashboard() {
             setNodeImages={workspace.setNodeImages}
             uploadingState={workspace.uploadingState}
             handleFileUpload={workspace.handleFileUpload}
-            preferredNodeId="community_safety"
+            preferredNodeId="bdsm"
           />
         ))}
 
@@ -144,7 +146,7 @@ export default function AdminDashboard() {
 
         {activeTab === 'cms_articles' && (
           <ArticleContentEditor
-            nodesData={defaultGraphNodes}
+            nodesData={articleNodes}
             adminLevel={adminLevel}
             onMessage={workspace.setMessage}
           />

@@ -5,7 +5,8 @@ import { parseDiscussionDate, VOTE_TYPES, type VoteType } from '@/lib/contentMod
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
 import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
 import { fetchUserStyleConfig } from '@/lib/data/adminSettings';
-import { initialAppData, graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
+import { initialAppData } from '@/lib/constants';
+import { MINDMAP_V2_NODES, buildMindmapLinks, validateMindmapNodes } from '@/lib/mindmap';
 
 const INITIALIZATION_FALLBACK_MS = 8_000;
 const SUPPORTED_THEMES = new Set(['morandi', 'sakura', 'ukiyo', 'moonlight']);
@@ -66,8 +67,8 @@ async function runQuery<T>(label: string, request: PromiseLike<QueryResult<T>>):
 
 export function useSupabaseSync(userId?: string | null, userName?: string | null) {
   const [appData, setAppData] = useState<AppData>(initialAppData);
-  const [nodesData, setNodesData] = useState<GraphNode[]>(defaultGraphNodes);
-  const [linksData, setLinksData] = useState<GraphLink[]>(defaultGraphLinks);
+  const [nodesData, setNodesData] = useState<GraphNode[]>(MINDMAP_V2_NODES);
+  const [linksData, setLinksData] = useState<GraphLink[]>(buildMindmapLinks(MINDMAP_V2_NODES));
   const [dbLoaded, setDbLoaded] = useState(false);
 
   useEffect(() => {
@@ -81,8 +82,8 @@ export function useSupabaseSync(userId?: string | null, userName?: string | null
 
     const applyDefaultMindmap = () => {
       if (cancelled) return;
-      setNodesData(defaultGraphNodes);
-      setLinksData(defaultGraphLinks);
+      setNodesData(MINDMAP_V2_NODES);
+      setLinksData(buildMindmapLinks(MINDMAP_V2_NODES));
     };
 
     const fetchDb = async () => {
@@ -112,32 +113,13 @@ export function useSupabaseSync(userId?: string | null, userName?: string | null
         void sheetConfigResult;
 
         const mindmap = mindmapResult.data?.[0];
-        if (Array.isArray(mindmap?.content) && mindmap.content.length > 0) {
-          // CMS 可能只保存部分欄位；不可讓稀疏資料覆蓋 constants 內完整的設計資產與文本。
-          const defaultsById = new Map(defaultGraphNodes.map(node => [node.id, node]));
-          const parsedNodes = (mindmap.content as GraphNode[]).map(node => {
-            const fallback = defaultsById.get(node.id);
-            return {
-              ...fallback,
-              ...node,
-              label: node.label || fallback?.label,
-              desc: node.desc || fallback?.desc,
-              intro: node.intro || fallback?.intro,
-              practice: node.practice || fallback?.practice,
-              hazard: node.hazard || fallback?.hazard,
-              first_aid: node.first_aid || fallback?.first_aid,
-              detail_text: node.detail_text || fallback?.detail_text,
-              image: node.image || fallback?.image,
-              kamonIcon: node.kamonIcon || fallback?.kamonIcon,
-              icon: node.icon || fallback?.icon,
-            } as GraphNode;
-          });
+        const mindmapValidation = validateMindmapNodes(mindmap?.content);
+        if (mindmapValidation.ok) {
+          const parsedNodes = mindmapValidation.nodes as GraphNode[];
           setNodesData(parsedNodes);
-          setLinksData(parsedNodes.filter(node => node.parent).map(node => ({
-            source: node.parent as string,
-            target: node.id,
-          })));
+          setLinksData(buildMindmapLinks(parsedNodes));
         } else {
+          if (mindmap?.content) console.warn('[Supabase] mindmap_data 未通過 20 節點 V2 驗證，使用本機 V2 fallback：', mindmapValidation.errors);
           applyDefaultMindmap();
         }
 

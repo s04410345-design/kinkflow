@@ -84,7 +84,7 @@ export default function ClientAppModules({
           onOpenArticle={onOpenArticle}
           onOpenForumPost={onOpenForumPost}
           onOpenForum={onOpenForum}
-          nodesData={nodesData}
+          nodesData={effectiveNodes}
           linksData={linksData}
           goBack={goBack}
           canGoBack={canGoBack}

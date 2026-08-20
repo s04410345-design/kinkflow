@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { GraphNode } from '@/lib/types';
+import { filterValidTopicNodeIds, getMindmapTopicNodes } from '@/lib/mindmap';
 
 export type ArticleMediaType = 'image' | 'video';
 
@@ -231,7 +232,7 @@ function nodeIdsFromRelation(value: unknown): string[] {
 
 function toArticleItem(article: LiveArticle, nodes: Map<string, GraphNode>): ArticleItem {
   const document = parseArticleDocument(article.body_json);
-  const nodeIds = nodeIdsFromRelation(article.article_node_links);
+  const nodeIds = filterValidTopicNodeIds([...nodes.values()], nodeIdsFromRelation(article.article_node_links));
   const nodeId = nodeIds[0] || '';
   const node = nodes.get(nodeId);
   return {
@@ -256,8 +257,8 @@ function toArticleItem(article: LiveArticle, nodes: Map<string, GraphNode>): Art
 }
 
 export function buildLegacyArticles(nodesData: GraphNode[]): ArticleItem[] {
-  return nodesData
-    .filter((node) => node.level > 0 && Boolean(node.detail_text))
+  return getMindmapTopicNodes(nodesData)
+    .filter((node) => Boolean(node.detail_text))
     .map((node) => {
       const document: ArticleDocument = {
         ...createEmptyArticleDocument(),

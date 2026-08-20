@@ -16,7 +16,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { groupDiscussionRows, type DiscussionRow } from '@/lib/data/discussions';
 import { fetchLobbyChat, lobbyChatToDiscussionPost } from '@/lib/data/lobbyChat';
 import { SafeStorage } from '@/lib/constants';
-import { graphNodes as defaultGraphNodes, graphLinks as defaultGraphLinks } from '@/lib/constants';
+import { MINDMAP_V2_NODES } from '@/lib/mindmap';
 import AuthModal from '@/components/AuthModal';
 import AiChatbot from '@/components/AiChatbot';
 import AgreementModal from '@/components/AgreementModal';
@@ -275,8 +275,8 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
   useEffect(() => {
     const openNodeHandler = (e: any) => {
       const nodeId = e.detail || e;
-      const n = (nodesData && nodesData.length > 0 ? nodesData : defaultGraphNodes).find((x: any) => x.id === nodeId)
-             || defaultGraphNodes.find((x: any) => x.id === nodeId);
+      const n = (nodesData && nodesData.length > 0 ? nodesData : MINDMAP_V2_NODES).find((x: any) => x.id === nodeId)
+             || MINDMAP_V2_NODES.find((x: any) => x.id === nodeId);
       if (n) setSelectedNode(n);
     };
     window.addEventListener('kinkflow_open_node', openNodeHandler);
@@ -581,7 +581,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           quizConfig={quizConfig}
           nodesData={nodesData}
           linksData={linksData}
-          defaultGraphNodes={defaultGraphNodes}
+          defaultGraphNodes={MINDMAP_V2_NODES}
           selectedNode={selectedNode}
           handleNodeClick={handleNodeClick}
           closeDrawer={closeDrawer}
@@ -602,7 +602,7 @@ export default function ClientApp({ quizConfig }: { quizConfig: any }) {
           userId={userId}
           onBackToNode={(nodeId) => {
             setActiveTab('graph');
-            const node = (nodesData.length > 0 ? nodesData : defaultGraphNodes).find((item) => item.id === nodeId);
+            const node = (nodesData.length > 0 ? nodesData : MINDMAP_V2_NODES).find((item) => item.id === nodeId);
             if (node) handleNodeClick(node);
           }}
           onCancelToGraph={() => setActiveTab('graph')}

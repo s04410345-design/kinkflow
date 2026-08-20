@@ -20,6 +20,7 @@ import {
 } from '@/lib/data/adminArticles';
 import MarkdownPreview from '@/components/MarkdownPreview';
 import { getAuthHeaders } from '@/lib/authHeaders';
+import { getMindmapNodePathLabel, getMindmapTopicNodes } from '@/lib/mindmap';
 
 type ArticleContentEditorProps = {
   nodesData: GraphNode[];
@@ -119,7 +120,7 @@ export default function ArticleContentEditor({ nodesData, adminLevel, onMessage 
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const canEdit = adminLevel !== null && adminLevel < 3;
-  const editableNodes = useMemo(() => nodesData.filter((node) => node.level > 0), [nodesData]);
+  const editableNodes = useMemo(() => getMindmapTopicNodes(nodesData), [nodesData]);
 
   const loadArticles = useCallback(async () => {
     setLoading(true);
@@ -329,7 +330,7 @@ export default function ArticleContentEditor({ nodesData, adminLevel, onMessage 
     const invalidMedia = [document.cover, ...document.sections.flatMap((section) => section.media)].find((media) => media && media.url && !isSafeArticleUrl(media.url));
     if (invalidMedia) { onMessage('❌ 圖片或影片網址只接受 http／https。'); return; }
     setSaving(true);
-    const result = await saveAdminArticleDraft({ id: selectedId || undefined, title, slug: slug || makeSlug(title), excerpt, document, nodeIds: selectedNodeIds, coverMediaId });
+    const result = await saveAdminArticleDraft({ id: selectedId || undefined, title, slug: slug || makeSlug(title), excerpt, document, nodeIds: selectedNodeIds, nodesData, coverMediaId });
     if (result.ok) {
       onMessage('✅ 專題草稿已儲存；前台仍維持目前已發布版本。');
       await loadArticles();
@@ -402,8 +403,8 @@ export default function ArticleContentEditor({ nodesData, adminLevel, onMessage 
           </div>
 
           <div className="mt-4 rounded-2xl border border-[#D1C6B4]/60 bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-black">Mind Map 節點關聯</h4><p className="mt-1 text-xs text-[#4A4238]/60">最多選擇 3 個節點，文章會出現在對應節點的專題入口。</p></div><span className="text-xs text-[#4A4238]/50">已選 {selectedNodeIds.length}/3</span></div>
-            <div className="mt-3 flex flex-wrap gap-2">{editableNodes.map((node) => { const selected = selectedNodeIds.includes(node.id); return <button key={node.id} type="button" onClick={() => setSelectedNodeIds((current) => selected ? current.filter((id) => id !== node.id) : current.length < 3 ? [...current, node.id] : current)} className={`rounded-full px-3 py-2 text-xs font-bold transition ${selected ? 'text-white' : 'border border-[#D1C6B4]/70 bg-[#FDFBF7] text-[#4A4238]'}`} style={selected ? { backgroundColor: node.color || '#4A4238' } : undefined}>{selected ? '✓ ' : ''}{node.label}</button>; })}</div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-black">Mind Map 主題標籤</h4><p className="mt-1 text-xs text-[#4A4238]/60">只能選第 2／3 階節點，最多 3 個；不選就是通用專題。</p></div><span className="text-xs text-[#4A4238]/50">已選 {selectedNodeIds.length}/3</span></div>
+            <div className="mt-3 flex flex-wrap gap-2">{editableNodes.map((node) => { const selected = selectedNodeIds.includes(node.id); return <button key={node.id} type="button" onClick={() => setSelectedNodeIds((current) => selected ? current.filter((id) => id !== node.id) : current.length < 3 ? [...current, node.id] : current)} className={`rounded-full px-3 py-2 text-xs font-bold transition ${selected ? 'text-white' : 'border border-[#D1C6B4]/70 bg-[#FDFBF7] text-[#4A4238]'}`} style={selected ? { backgroundColor: node.color || '#4A4238' } : undefined}>{selected ? '✓ ' : ''}{getMindmapNodePathLabel(nodesData, node.id)}</button>; })}</div>
           </div>
 
           <div className="mt-4 space-y-4">
