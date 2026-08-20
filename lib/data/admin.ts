@@ -1,6 +1,7 @@
 import type { DiscussionPost, GraphNode } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { mapDiscussionRow, type DiscussionRow } from '@/lib/data/discussions';
+import { MINDMAP_V2_NODES, validateMindmapNodes } from '@/lib/mindmap';
 
 export type AdminNodeImages = Record<string, { icon?: string; image?: string; kamon?: string; realistic?: string; iconAlt?: string; imageAlt?: string }>;
 export type AdminLogEntry = { id: string; created_at: string; action_type: string; details: Record<string, unknown>; device_id?: string | null };
@@ -39,8 +40,16 @@ export async function fetchAdminCmsData(defaultNodes: GraphNode[], defaultQuizQu
   ]);
   const content = new Map((contentResult.data || []).map((row) => [String(row.key_name), row.content as unknown]));
   // 後台優先載入草稿；前台只讀取正式的 mindmap_data / node_images key。
-  const mindmap = asNodes(content.get('mindmap_data_draft') ?? content.get('mindmap_data'));
-  const effectiveNodes = mindmap.length >= 10 ? mindmap : defaultNodes;
+  const draftValidation = validateMindmapNodes(content.get('mindmap_data_draft'));
+  const publishedValidation = validateMindmapNodes(content.get('mindmap_data'));
+  const defaultValidation = validateMindmapNodes(defaultNodes);
+  const effectiveNodes = draftValidation.ok
+    ? draftValidation.nodes
+    : publishedValidation.ok
+      ? publishedValidation.nodes
+      : defaultValidation.ok
+        ? defaultValidation.nodes
+        : MINDMAP_V2_NODES;
   const nodeNameMap: Record<string, string> = {};
   const nodeParentMap: Record<string, string> = {};
   const nodeLevelMap: Record<string, number> = {};
@@ -135,7 +144,14 @@ export async function removeAdminRole(userId: string): Promise<{ ok: boolean; me
 
 export async function saveAdminContent(keyName: string, data: unknown, isJson = true): Promise<{ ok: boolean; message?: string }> {
   try {
-    const content = isJson ? JSON.parse(String(data)) as unknown : data;
+    const parsed = isJson ? JSON.parse(String(data)) as unknown : data;
+    const content = keyName === 'mindmap_data' || keyName === 'mindmap_data_draft'
+      ? (() => {
+          const validation = validateMindmapNodes(parsed);
+          if (!validation.ok) throw new Error(`心智圖草稿驗證失敗：${validation.errors.slice(0, 3).join('；')}`);
+          return validation.nodes;
+        })()
+      : parsed;
     const { error } = await supabase.from('quiz_content').upsert({ key_name: keyName, content }, { onConflict: 'key_name' });
     return error ? { ok: false, message: error.message } : { ok: true };
   } catch (error) {
@@ -156,10 +172,11 @@ export async function publishQuizContent(quizJson: string): Promise<{ ok: boolea
 
 export async function publishNodeContent(mindmapJson: string, nodeImages: AdminNodeImages): Promise<{ ok: boolean; message?: string }> {
   try {
-    const nodes = JSON.parse(mindmapJson) as unknown;
-    if (!Array.isArray(nodes) || nodes.length === 0) return { ok: false, message: '節點內容不可為空。' };
+    const parsed = JSON.parse(mindmapJson) as unknown;
+    const validation = validateMindmapNodes(parsed);
+    if (!validation.ok) return { ok: false, message: `心智圖資料驗證失敗：${validation.errors.slice(0, 3).join('；')}` };
     const { error } = await supabase.from('quiz_content').upsert([
-      { key_name: 'mindmap_data', content: nodes },
+      { key_name: 'mindmap_data', content: validation.nodes },
       { key_name: 'node_images', content: nodeImages },
     ], { onConflict: 'key_name' });
     return error ? { ok: false, message: error.message } : { ok: true };

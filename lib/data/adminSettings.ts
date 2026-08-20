@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { SafeStorage } from '@/lib/constants';
 import { getAuthHeaders } from '@/lib/authHeaders';
+import { MINDMAP_V2_NODES } from '@/lib/mindmap';
 
 export type ProfileModuleColumn = 'left' | 'right' | 'full';
 
@@ -32,18 +33,7 @@ export const DEFAULT_PROFILE_LAYOUT: ProfileLayoutConfig = {
   ],
 };
 
-const DEFAULT_SEED_NODES = [
-  { id: 'bdsm', level: 0, radius: 45, color: '#E8C5C8', label: 'BDSM大廳', desc: 'BDSM 世界的起點。', crossLinks: [] },
-  { id: 'community_safety', level: 1, radius: 35, color: '#F3A6A6', label: '社群與安全防護', desc: '進入實踐前不可或缺的安全基石。', parent: 'bdsm', crossLinks: [] },
-  { id: 'bondage', level: 1, radius: 35, color: '#A6C8F3', label: '繩藝與肢體束縛', desc: '日式繩縛 (Shibari)、手銬與限制。', parent: 'bdsm', crossLinks: [] },
-  { id: 'ds_main', level: 1, radius: 35, color: '#E8A6F3', label: '支配與臣服動態', desc: 'Dom & Sub 權力交接、稱呼與契約。', parent: 'bdsm', crossLinks: [] },
-  { id: 'sm_main', level: 1, radius: 35, color: '#F3C8A6', label: '施虐與痛覺體驗', desc: '鞭打、拍打、滴蠟與身體感官。', parent: 'bdsm', crossLinks: [] },
-  { id: 'sensory_deprivation', level: 1, radius: 35, color: '#A6C8F3', label: '感官剝奪與剝離', desc: '眼罩、耳罩白噪音與感覺剝奪。', parent: 'bdsm', crossLinks: [] },
-  { id: 'scenario_play', level: 1, radius: 35, color: '#B5C4B1', label: '情境劇本與扮演', desc: '角色扮演、Pet Play 與年齡退行。', parent: 'bdsm', crossLinks: [] },
-  { id: 'mental_control', level: 1, radius: 35, color: '#E8A6F3', label: '心理控制與催眠', desc: '催眠引導、心理暗示與精神臣服。', parent: 'bdsm', crossLinks: [] },
-  { id: 'consensus_risk', level: 1, radius: 35, color: '#F3A6A6', label: '知情同意與溝通', desc: '安全詞、溝通儀式與事後撫慰 (Aftercare)。', parent: 'bdsm', crossLinks: [] },
-  { id: 'diverse_relations', level: 1, radius: 35, color: '#E8A6F3', label: '多元關係與次文化', desc: '多重關係、雙向 Switch 與圈內交流。', parent: 'bdsm', crossLinks: [] },
-];
+const DEFAULT_SEED_NODES = MINDMAP_V2_NODES;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

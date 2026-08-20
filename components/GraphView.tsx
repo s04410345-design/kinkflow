@@ -12,7 +12,8 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import type { GraphNode, GraphLink, AppData } from '@/lib/types';
-import { graphNodes, graphLinks, getWafuColor } from '@/lib/constants';
+import { getWafuColor } from '@/lib/constants';
+import { MINDMAP_V2_NODES } from '@/lib/mindmap';
 import DrawerContent from '@/components/DrawerContent';
 import { useQuizConfig } from '@/components/QuizContext';
 
@@ -51,7 +52,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
   const nodePositions = useRef<Record<string, {x: number, y: number}>>({});
 
   // ================= 展開/收合狀態 =================
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['bdsm', 'community_safety', 'bondage', 'ds_main', 'sm_main', 'sensory_deprivation', 'scenario_play', 'mental_control', 'consensus_risk', 'diverse_relations']));
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['bdsm', 'bd', 'ds', 'sm', 'community']));
   
   // ================= 手機版滿版視窗狀態 =================
   const [isDrawerFullScreen, setIsDrawerFullScreen] = useState(false);
@@ -139,7 +140,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
     }
   }, [selectedNode?.id, targetPostId, nodesData]);
 
-  // ================= 節點座標計算（左到右長條多階層樹） =================
+  // ================= 節點座標計算（根在上、分支向下的直式樹） =================
   const staticPositions = useMemo(() => {
     if (nodesData.length === 0) return {};
     try {
@@ -150,8 +151,10 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           if (d.id === 'bdsm') return undefined;
           return (d.parent && idSet.has(d.parent)) ? d.parent : 'bdsm';
         })(nodesData);
-      const layoutRoot = d3.tree<GraphNode>().nodeSize([180, 360])(root);
-      const rootY = layoutRoot.x;
+      // D3 nodeSize([xSpacing, ySpacing])：x 為同層橫向間距，y 為階層向下間距。
+      const layoutRoot = d3.tree<GraphNode>().nodeSize([300, 180])(root);
+      const rootX = layoutRoot.x;
+      const rootY = layoutRoot.y;
 
       const getColumnId = (d: d3.HierarchyPointNode<GraphNode>): string => {
         let current: d3.HierarchyPointNode<GraphNode> = d;
@@ -160,8 +163,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
       };
 
       const nodesArr = layoutRoot.descendants().map(d => {
-        const tx = d.y;
-        const ty = d.x - rootY;
+        const tx = d.x - rootX;
+        const ty = d.y - rootY;
         return {
           ...d.data,
           id: d.id,
@@ -198,7 +201,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
 
       return { pos, crossLinks };
     } catch (error: unknown) {
-      console.error('長條心智圖座標計算失敗', error);
+      console.error('直式心智圖座標計算失敗', error);
       return { pos: {}, crossLinks: [] };
     }
   }, [nodesData]);
@@ -238,7 +241,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
       const initOffsetX = width / 2;
       // 手機版預留頂部導覽與底部操作區，避免心智圖垂直偏移到可視區外。
       const initOffsetY = isMobileViewport ? height * 0.46 : height / 2;
-      // 長條樹的水平間距約 360px；手機版先聚焦根節點與第一層，後續以縮放查看深層節點。
+      // 直式樹的垂直階層間距約 180px；手機版先聚焦根節點與第一層，後續以縮放查看深層節點。
       const mobileScale = Math.min(0.62, Math.max(0.42, (width - 24) / 760));
       const initScale = isMobileViewport ? mobileScale : 0.72;
       const initialTransform = d3.zoomIdentity.translate(initOffsetX, initOffsetY).scale(initScale);
@@ -333,8 +336,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           const sy = staticPositions?.pos?.[(d.source as any).id || d.source as string]?.y || 0;
           const tx = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.x || 0;
           const ty = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.y || 0;
-          const dx = tx - sx;
-          return `M${sx},${sy} C${sx + dx * 0.45},${sy} ${tx - dx * 0.45},${ty} ${tx},${ty}`;
+          const dy = ty - sy;
+          return `M${sx},${sy} C${sx},${sy + dy * 0.45} ${tx},${ty - dy * 0.45} ${tx},${ty}`;
         })
         .style("filter", "url(#thick-brush)")
         .call(e => e.transition().duration(800).attr("stroke-opacity", 0.9)),
@@ -343,8 +346,8 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           const sy = staticPositions?.pos?.[(d.source as any).id || d.source as string]?.y || 0;
           const tx = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.x || 0;
           const ty = staticPositions?.pos?.[(d.target as any).id || d.target as string]?.y || 0;
-          const dx = tx - sx;
-          return `M${sx},${sy} C${sx + dx * 0.45},${sy} ${tx - dx * 0.45},${ty} ${tx},${ty}`;
+          const dy = ty - sy;
+          return `M${sx},${sy} C${sx},${sy + dy * 0.45} ${tx},${ty - dy * 0.45} ${tx},${ty}`;
       }),
       exit => exit.transition().duration(400).attr("stroke-opacity", 0).remove()
     );
@@ -447,10 +450,10 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
           let shapeType = d.shape;
           if (!shapeType) {
             if (d.id === 'bdsm') shapeType = 'plaque';
-            else if (colId === 'community_safety') shapeType = 'hexagon';
-            else if (colId === 'bd_main') shapeType = 'octagon';
-            else if (colId === 'ds_main') shapeType = 'diamond';
-            else if (colId === 'sm_main') shapeType = 'drop';
+            else if (colId === 'community') shapeType = 'badge';
+            else if (colId === 'bd') shapeType = 'hexagon';
+            else if (colId === 'ds') shapeType = 'diamond';
+            else if (colId === 'sm') shapeType = 'drop';
             else shapeType = 'circle';
           }
 
@@ -722,7 +725,7 @@ export default function GraphView({ onNodeClick, selectedNode, closeDrawer, user
               onOpenForumPost={onOpenForumPost}
               onOpenForum={onOpenForum}
               onJump={(nid, pid) => {
-                const targetNode = (nodesData.length > 0 ? nodesData : graphNodes).find(n => n.id === nid);
+                const targetNode = (nodesData.length > 0 ? nodesData : MINDMAP_V2_NODES).find(n => n.id === nid);
                 if (targetNode) {
                   onNodeClick(targetNode, pid);
                 } else {

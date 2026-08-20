@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { graphNodes } from '@/lib/constants';
 import type { AdminNodeImages } from '@/lib/data/admin';
+import { MINDMAP_V2_NODES, getMindmapNodePathLabel, validateMindmapNodes } from '@/lib/mindmap';
 
 type EditableNode = {
   id: string;
@@ -22,6 +22,8 @@ type EditableNode = {
   hazard?: string;
   first_aid?: string;
   detail_text?: string;
+  isHotTopicHub?: boolean;
+  allowContentTag?: boolean;
   [key: string]: unknown;
 };
 
@@ -73,6 +75,28 @@ function parseNodes(json: string): EditableNode[] {
   } catch {
     return [];
   }
+}
+
+function sortNodesAsTree(nodes: EditableNode[]): EditableNode[] {
+  const children = new Map<string, EditableNode[]>();
+  nodes.forEach((node) => {
+    const parent = textValue(node.parent);
+    if (!parent) return;
+    const list = children.get(parent) || [];
+    list.push(node);
+    children.set(parent, list);
+  });
+  const ordered: EditableNode[] = [];
+  const visited = new Set<string>();
+  const visit = (node: EditableNode) => {
+    if (visited.has(node.id)) return;
+    visited.add(node.id);
+    ordered.push(node);
+    (children.get(node.id) || []).forEach(visit);
+  };
+  nodes.filter((node) => !textValue(node.parent)).forEach(visit);
+  nodes.forEach(visit);
+  return ordered;
 }
 
 function textValue(value: unknown): string {
@@ -208,7 +232,8 @@ export default function NodeContentEditor({
   preferredNodeId = 'bdsm',
 }: NodeContentEditorProps) {
   const [selectedId, setSelectedId] = useState(preferredNodeId);
-  const nodes = useMemo(() => parseNodes(mindmapJson), [mindmapJson]);
+  const nodes = useMemo(() => sortNodesAsTree(parseNodes(mindmapJson)), [mindmapJson]);
+  const validation = useMemo(() => validateMindmapNodes(nodes), [nodes]);
 
   const currentNode = useMemo(
     () => nodes.find((node) => node.id === selectedId) || null,
@@ -256,34 +281,6 @@ export default function NodeContentEditor({
     await onSave('mindmap_data', mindmapJson, true);
   };
 
-  const handleAddNode = () => {
-    const newNodeId = `new_node_${Date.now()}`;
-    const newNode: EditableNode = {
-      id: newNodeId,
-      label: '新增節點',
-      level: currentNode ? numberValue(currentNode.level, 0) + 1 : 1,
-      parent: currentNode?.id || '',
-      intro: '',
-      practice: '',
-      hazard: '',
-      first_aid: '',
-      detail_text: '',
-      color: '#A0F766',
-      shape: '',
-    };
-
-    setMindmapJson(JSON.stringify([...nodes, newNode], null, 2));
-    setSelectedId(newNodeId);
-  };
-
-  const handleDeleteNode = () => {
-    if (!currentNode) return;
-    const label = textValue(currentNode.label) || currentNode.id;
-    if (!confirm(`確定要刪除「${label}」嗎？這也會影響相依的子節點連線。`)) return;
-    const updatedNodes = nodes.filter((node) => node.id !== currentNode.id);
-    setMindmapJson(JSON.stringify(updatedNodes, null, 2));
-    setSelectedId(updatedNodes.some((node) => node.id === 'bdsm') ? 'bdsm' : updatedNodes[0]?.id || '');
-  };
 
   if (nodes.length === 0) {
     return (
@@ -297,28 +294,30 @@ export default function NodeContentEditor({
   const drawerSrc = currentNode ? imageSource(currentNode, nodeImages, 'image') : '';
   const iconAlt = currentNode ? imageAlt(currentNode, nodeImages, 'icon') : '';
   const drawerAlt = currentNode ? imageAlt(currentNode, nodeImages, 'image') : '';
-  const selectedIsTemplate = currentNode?.id === preferredNodeId;
-  const templateLabel = preferredNodeId === 'community_safety' ? 'community_safety 第二節點樣板' : 'BDSM 大廳樣板';
+  const currentLevel = currentNode ? numberValue(currentNode.level, 0) : 0;
+  const allowedParents = currentNode ? nodes.filter((node) => node.id !== currentNode.id && numberValue(node.level, 0) === currentLevel - 1) : [];
+  const currentPath = currentNode ? getMindmapNodePathLabel(validation.nodes, currentNode.id) : '';
+  const validationMessage = validation.ok ? '20／20 結構正確' : `結構未通過：${validation.errors.slice(0, 2).join('；')}`;
 
   return (
     <div className="rounded-2xl border border-[#D1C6B4]/30 bg-white/90 p-4 shadow-sm sm:p-6">
       <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h2 className="text-xl font-bold text-[#362E25]">節點內容視覺化編輯器</h2>
-          <p className="mt-1 text-xs text-[#4A4238]/60">先儲存草稿，確認右側預覽與圖片狀態正確後，再發布到前台。</p>
+          <h2 className="text-xl font-bold text-[#362E25]">20 節點直式心智圖編輯器</h2>
+          <p className="mt-1 text-xs text-[#4A4238]/60">後台資料是前台唯一來源。固定 20 個節點；1 階只做熱門主題統合，2／3 階才可作內容標籤。</p>
         </div>
         <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
           <button
             type="button"
             onClick={() => {
-              if (confirm('確定要載入標準的【10 大精簡版節點結構】嗎？這將會替換目前的編輯器內容，請記得儲存草稿。')) {
-                setMindmapJson(JSON.stringify(graphNodes, null, 2));
+              if (confirm('確定要載入標準的【20 節點 V2 直式結構】嗎？這會覆蓋目前尚未儲存的編輯內容。')) {
+                setMindmapJson(JSON.stringify(MINDMAP_V2_NODES, null, 2));
                 setSelectedId('bdsm');
               }
             }}
             className="rounded-xl border border-[#B5C4B1] bg-[#C5D4B6]/50 px-4 py-2 text-xs font-bold text-[#362E25] shadow-2xs transition-all hover:bg-[#C5D4B6]"
           >
-            載入完整 10 大節點與文本
+            載入標準 20 節點 V2
           </button>
           <button
             type="button"
@@ -343,38 +342,46 @@ export default function NodeContentEditor({
 
       <div className="flex flex-col gap-6 md:flex-row">
         <div className="flex w-full shrink-0 flex-col gap-2 md:w-64">
-          <div className="max-h-[600px] space-y-2 overflow-y-auto pr-2">
-            {nodes.map((node) => (
-              <button
-                key={node.id}
-                type="button"
-                onClick={() => setSelectedId(node.id)}
-                className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-all ${selectedId === node.id ? 'border-[#E8C5C8] bg-[#E8C5C8]/40 text-[#4A4238] shadow-sm' : 'border-[#D1C6B4]/30 bg-white text-[#4A4238]/70 hover:border-[#D1C6B4] hover:bg-[#F5EFE6]'}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate">{textValue(node.label) || node.id}</span>
-                  <span className="shrink-0 rounded-full border border-black/5 bg-white/50 px-2 py-0.5 text-[10px]">Lv.{textValue(node.level) || '-'}</span>
-                </div>
-              </button>
-            ))}
+          <div className="mb-2 rounded-xl border border-[#D1C6B4]/40 bg-white px-3 py-2 text-[11px] font-bold text-[#4A4238]">
+            <div className="flex items-center justify-between gap-2"><span>V2 結構檢查</span><span className={validation.ok ? 'text-emerald-700' : 'text-red-600'}>{validationMessage}</span></div>
+            <p className="mt-1 font-normal text-[#4A4238]/60">根 → 1 階主幹 → 2 階分類 → 3 階標籤</p>
           </div>
-          <button
-            type="button"
-            onClick={handleAddNode}
-            className="mt-2 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#D1C6B4] py-3 text-sm font-bold text-[#4A4238]/60 transition-all hover:border-[#4A4238]/50 hover:bg-[#F5EFE6] hover:text-[#4A4238]"
-          >
-            <span>+</span> 新增節點
-          </button>
+          <div className="max-h-[600px] space-y-1 overflow-y-auto pr-2">
+            {nodes.map((node) => {
+              const level = numberValue(node.level, 0);
+              const nodePath = getMindmapNodePathLabel(validation.nodes, node.id) || textValue(node.label) || node.id;
+              return (
+                <button
+                  key={node.id}
+                  type="button"
+                  onClick={() => setSelectedId(node.id)}
+                  style={{ paddingLeft: `${12 + level * 14}px` }}
+                  className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${selectedId === node.id ? 'border-[#E8C5C8] bg-[#E8C5C8]/40 text-[#4A4238] shadow-sm' : 'border-[#D1C6B4]/30 bg-white text-[#4A4238]/70 hover:border-[#D1C6B4] hover:bg-[#F5EFE6]'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">{nodePath}</span>
+                    <span className="shrink-0 rounded-full border border-black/5 bg-white/50 px-2 py-0.5 text-[10px]">{level} 階</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 rounded-xl border border-[#D1C6B4]/40 bg-[#FFF9E8] px-3 py-2 text-[11px] leading-5 text-[#6B5310]">
+            節點數固定為 20 個。若要調整樹狀分類，請編輯既有節點的父節點與層級，不在後台任意新增或刪除節點。
+          </div>
         </div>
 
         <div className="min-w-0 flex-1 space-y-5 rounded-xl border border-[#D1C6B4]/30 bg-[#FDFBF7] p-4 sm:p-6">
           {currentNode ? (
             <>
-              {selectedIsTemplate && (
-                <div className="rounded-xl border border-[#E8C5C8] bg-[#E8C5C8]/20 px-4 py-3 text-sm text-[#4A4238]">
-                  <strong>{templateLabel}</strong>：目前節點會沿用通用圖片、Alt text、即時預覽與草稿／發布流程；前台只會讀取已發布版本。
+              <div className="rounded-xl border border-[#E8C5C8] bg-[#E8C5C8]/20 px-4 py-3 text-sm text-[#4A4238]">
+                <p className="font-black">{currentPath || currentNode.label || currentNode.id}</p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+                  <span className="rounded-full bg-white/70 px-2.5 py-1">{currentLevel} 階</span>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1">{currentNode.isHotTopicHub ? '熱門主題統合' : '非熱門統合'}</span>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1">{currentNode.allowContentTag ? '可作內容標籤' : '不可作內容標籤'}</span>
                 </div>
-              )}
+              </div>
 
               <div className="border-b border-[#D1C6B4]/30 pb-5">
                 <div className="mb-3 flex items-start justify-between gap-4">
@@ -382,17 +389,19 @@ export default function NodeContentEditor({
                     <label className="mb-1 block text-xs font-bold text-[#4A4238]">節點名稱（Label）</label>
                     <input type="text" value={textValue(currentNode.label)} onChange={(event) => handleFieldChange('label', event.target.value)} className="w-full border-b border-transparent bg-transparent px-1 py-1 text-2xl font-black text-[#4A4238] outline-none transition-colors hover:border-[#D1C6B4] focus:border-[#E8C5C8]" />
                   </div>
-                  <button type="button" onClick={handleDeleteNode} className="shrink-0 rounded-lg border border-transparent px-3 py-1.5 text-xs font-bold text-red-500 transition-colors hover:border-red-200 hover:bg-red-50">刪除節點</button>
+                  <span className="shrink-0 rounded-lg border border-[#D1C6B4]/50 bg-white px-3 py-1.5 text-xs font-bold text-[#4A4238]/60">固定節點</span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
                   <div className="sm:col-span-2">
                     <label className="mb-1 block text-xs font-bold text-[#4A4238]">英文代號（ID）— 需唯一</label>
-                    <input type="text" value={currentNode.id} onChange={(event) => handleFieldChange('id', event.target.value)} className="w-full rounded-lg border border-[#D1C6B4]/50 bg-white px-3 py-2 text-xs font-mono text-[#4A4238]/80 outline-none focus:border-[#E8C5C8]" />
+                    <input type="text" value={currentNode.id} readOnly aria-readonly="true" className="w-full rounded-lg border border-[#D1C6B4]/50 bg-[#F5EFE6] px-3 py-2 text-xs font-mono text-[#4A4238]/80 outline-none" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-bold text-[#4A4238]">層級（Level）</label>
-                    <input type="number" value={textValue(currentNode.level) || '1'} onChange={(event) => handleFieldChange('level', event.target.value)} className="w-full rounded-lg border border-[#D1C6B4]/50 bg-white px-3 py-2 text-xs text-[#4A4238] outline-none focus:border-[#E8C5C8]" />
+                    <select value={textValue(currentNode.level) || '1'} disabled className="w-full rounded-lg border border-[#D1C6B4]/50 bg-[#F5EFE6] px-3 py-2 text-xs text-[#4A4238] outline-none">
+                      <option value="0">0 階（根）</option><option value="1">1 階（主幹）</option><option value="2">2 階（分類）</option><option value="3">3 階（標籤）</option>
+                    </select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-bold text-[#4A4238]">大小半徑（Radius）</label>
@@ -403,9 +412,10 @@ export default function NodeContentEditor({
                 <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-bold text-[#4A4238]">父節點（Parent）</label>
-                    <select value={textValue(currentNode.parent)} onChange={(event) => handleFieldChange('parent', event.target.value)} className="w-full rounded-lg border border-[#D1C6B4]/50 bg-white px-3 py-2 text-xs text-[#4A4238] outline-none focus:border-[#E8C5C8]">
+                    <p className="mb-1 text-[10px] text-[#4A4238]/50">V2 固定階層欄位；若需改樹狀配置，需修改版本化資料模型。</p>
+                    <select value={textValue(currentNode.parent)} disabled className="w-full rounded-lg border border-[#D1C6B4]/50 bg-[#F5EFE6] px-3 py-2 text-xs text-[#4A4238] outline-none">
                       <option value="">無（根節點）</option>
-                      {nodes.filter((node) => node.id !== currentNode.id).map((node) => <option key={node.id} value={node.id}>{textValue(node.label) || node.id}</option>)}
+                      {allowedParents.map((node) => <option key={node.id} value={node.id}>{textValue(node.label) || node.id}（{numberValue(node.level, 0)} 階）</option>)}
                     </select>
                   </div>
                   <div>

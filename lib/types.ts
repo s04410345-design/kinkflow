@@ -21,6 +21,10 @@ export interface GraphNode extends d3.SimulationNodeDatum {
   colId?: string;
   detail_text?: string;
   crossLinks?: string[];
+  /** Only level-1 hubs can aggregate hot topics. */
+  isHotTopicHub?: boolean;
+  /** Only level-2 and level-3 nodes can be selected as content tags. */
+  allowContentTag?: boolean;
   shape?: 'hexagon' | 'octagon' | 'diamond' | 'drop' | 'plaque' | 'circle' | 'triangle' | 'square' | 'star' | 'heart' | 'cloud' | 'cross' | 'badge';
   fx?: number;
   fy?: number;

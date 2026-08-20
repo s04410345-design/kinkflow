@@ -1,11 +1,13 @@
 import type { DiscussionPost, GraphNode } from '@/lib/types';
 import { extractDiscussionContent } from '@/lib/contentModel';
 import { supabase } from '@/lib/supabase';
+import { filterValidTopicNodeIds, getMindmapNodePathLabel } from '@/lib/mindmap';
 
 export type ForumItem = DiscussionPost & {
   nodeId: string;
   nodeLabel: string;
   nodeColor: string;
+  topicNodeIds: string[];
   authorId?: string;
   topicId?: string | null;
   status?: string;
@@ -84,6 +86,7 @@ export function toLegacyForumItems(nodesData: GraphNode[], discussions: Record<s
       nodeId,
       nodeLabel: node?.label || post.nodeName || '未分類主題',
       nodeColor: node?.color || '#D9B650',
+      topicNodeIds: nodeId ? [nodeId] : [],
       commentCount: post.replies?.length || 0,
       hotScore: getLegacyHotScore(post),
     };
@@ -122,7 +125,9 @@ export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<
 
   const nodes = new Map(nodesData.map((node) => [node.id, node]));
   return (data as LiveForumPost[]).map((post) => {
-    const nodeId = post.forum_topics?.[0]?.topic_node_links?.[0]?.node_id || '';
+    const requestedTopicNodeIds = [...new Set((post.forum_topics || []).flatMap((topic) => (topic.topic_node_links || []).map((link) => link.node_id)))];
+    const topicNodeIds = filterValidTopicNodeIds(nodesData, requestedTopicNodeIds);
+    const nodeId = topicNodeIds[0] || '';
     const topicNode = nodeId ? nodes.get(nodeId) : undefined;
     const media = (post.forum_post_media || []).flatMap((entry) => {
       const asset = entry.media_assets?.[0];
@@ -131,8 +136,9 @@ export async function fetchPublishedForumPosts(nodesData: GraphNode[]): Promise<
     return {
       id: post.id,
       nodeId: topicNode?.id || 'all',
-      nodeLabel: topicNode?.label || '社群討論',
+      nodeLabel: topicNode ? getMindmapNodePathLabel(nodesData, topicNode.id) : '通用討論',
       nodeColor: topicNode?.color || '#172033',
+      topicNodeIds,
       title: post.title,
       body: post.body_text,
       text: post.body_text,
@@ -163,14 +169,17 @@ export async function fetchForumComments(postId: string): Promise<ForumComment[]
   return (data || []) as ForumComment[];
 }
 
-export async function createForumPost(title: string, body: string, nodeIds: string[] = []): Promise<{ ok: boolean; message?: string }> {
+export async function createForumPost(title: string, body: string, nodeIds: string[] = [], nodesData: GraphNode[] = []): Promise<{ ok: boolean; message?: string }> {
   const userId = await currentUserId();
   if (!userId) return { ok: false, message: '請先登入會員。' };
   const safeTitle = title.trim();
   const safeBody = body.trim();
   if (!safeTitle || safeTitle.length > 160) return { ok: false, message: '標題必須為 1 至 160 字。' };
   if (!safeBody || safeBody.length > 10000) return { ok: false, message: '文章內容必須為 1 至 10,000 字。' };
-  const safeNodeIds = [...new Set(nodeIds.filter(Boolean))].slice(0, 3);
+  const requestedNodeIds = [...new Set(nodeIds.filter(Boolean))];
+  if (requestedNodeIds.length > 3) return { ok: false, message: '最多只能選擇 3 個主題標籤。' };
+  const safeNodeIds = filterValidTopicNodeIds(nodesData, requestedNodeIds);
+  if (requestedNodeIds.length > 0 && safeNodeIds.length !== requestedNodeIds.length) return { ok: false, message: '主題標籤只能選擇第 2 或第 3 階節點，請重新選擇。' };
   let topicId: string | undefined;
 
   if (safeNodeIds.length) {

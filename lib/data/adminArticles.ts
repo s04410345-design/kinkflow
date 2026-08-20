@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import type { GraphNode } from '@/lib/types';
 import {
   buildArticleDraftBody,
   buildPublishedArticleBody,
@@ -6,6 +7,7 @@ import {
   parseArticleDocument,
   type ArticleDocument,
 } from '@/lib/data/articles';
+import { filterValidTopicNodeIds } from '@/lib/mindmap';
 
 export type AdminArticleStatus = 'draft' | 'published' | 'hidden' | 'deleted';
 
@@ -31,6 +33,7 @@ export type SaveAdminArticleInput = {
   excerpt: string;
   document: ArticleDocument;
   nodeIds: string[];
+  nodesData: GraphNode[];
   coverMediaId?: string | null;
 };
 
@@ -122,7 +125,10 @@ export async function saveAdminArticleDraft(input: SaveAdminArticleInput): Promi
   const excerpt = input.excerpt.trim();
   if (!title) return { ok: false, message: '請填寫專題標題。' };
   if (!input.document.introMarkdown.trim() && input.document.sections.length === 0) return { ok: false, message: '請至少填寫導言或一個內容章節。' };
-  const uniqueNodeIds = [...new Set(input.nodeIds)].filter(Boolean).slice(0, 3);
+  const requestedNodeIds = [...new Set(input.nodeIds)].filter(Boolean);
+  if (requestedNodeIds.length > 3) return { ok: false, message: '最多只能選擇 3 個主題標籤。' };
+  const uniqueNodeIds = filterValidTopicNodeIds(input.nodesData, requestedNodeIds);
+  if (requestedNodeIds.length > 0 && uniqueNodeIds.length !== requestedNodeIds.length) return { ok: false, message: '專題標籤只能選擇第 2 或第 3 階節點，請重新選擇。' };
   const slug = normalizeSlug(input.slug || title);
   let articleId = input.id;
   let existingBody: unknown = { published: createEmptyArticleDocument() };

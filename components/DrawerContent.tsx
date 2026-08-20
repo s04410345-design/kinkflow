@@ -146,8 +146,8 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   const dbKey = node.level === 0 ? 'lobby_board' : node.id;
   const rawPosts = (appData && appData.discussions && appData.discussions[dbKey]) || [];
   
-  // 大廳熱門留言固定取前 10，節點專題則改由正式 forum_posts 顯示。
-  const hotLimit = node.level === 0 ? 10 : node.level === 1 ? 5 : 3;
+  // 熱門主題只統合在 1 階主幹；2／3 階是內容標籤，不建立熱門統合區。
+  const hotLimit = node.level === 0 ? 10 : node.level === 1 && node.isHotTopicHub ? 5 : 0;
   const sortedPostsForHot = [...rawPosts].sort((a, b) => getPostActivityScore(b) - getPostActivityScore(a) || (parseDiscussionDate(b.timestamp)?.getTime() || 0) - (parseDiscussionDate(a.timestamp)?.getTime() || 0));
   const hotPostIds = new Set(sortedPostsForHot.slice(0, hotLimit).map(p => p.id));
 
@@ -211,7 +211,8 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
   useEffect(() => {
     if (targetPostId && !hasScrolled) {
       setTimeout(() => {
-        if (node.level > 0) setNodeTab('topics');
+        if (node.level === 1 && node.isHotTopicHub) setNodeTab('topics');
+        else if (node.level > 0) setNodeTab('info');
         if (node.level === 0) setLobbyTab('board');
       }, 0);
       
@@ -355,7 +356,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
           <div className="flex gap-4 mt-4 border-b border-[#D1C6B4]/40 overflow-x-auto no-scrollbar">
             <button onClick={() => setNodeTab('info')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'info' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>📖 知識百科</button>
             <button onClick={() => setNodeTab('stats')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'stats' ? 'text-[#15803D] border-b-2 border-[#15803D]' : 'text-[#4A4238]/70 hover:text-[#15803D]'}`}>📊 喜好投票</button>
-            <button onClick={() => setNodeTab('topics')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'topics' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>🗣️ 熱門主題</button>
+            {node.level === 1 && node.isHotTopicHub && <button onClick={() => setNodeTab('topics')} className={`pb-2 text-sm font-bold flex items-center gap-1.5 shrink-0 ${nodeTab === 'topics' ? 'text-[#1A1612] border-b-2 border-[#1A1612]' : 'text-[#4A4238]/70 hover:text-[#1A1612]'}`}>🗣️ 熱門主題</button>}
           </div>
         )}
       </div>
@@ -501,7 +502,7 @@ export default function DrawerContent({ node, closeDrawer, userName, isGuest, ap
               </div>
             )}
 
-            {node.level > 0 && nodeTab === 'topics' && (
+            {node.level === 1 && node.isHotTopicHub && nodeTab === 'topics' && (
               <ForumTopicPreview
                 node={node}
                 rankingNode={rankingRootNode}

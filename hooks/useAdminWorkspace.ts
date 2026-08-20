@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { graphNodes as defaultGraphNodes, quizQuestions as defaultQuizQuestions } from '@/lib/constants';
+import { quizQuestions as defaultQuizQuestions } from '@/lib/constants';
+import { MINDMAP_V2_NODES } from '@/lib/mindmap';
 import {
   clearNodeDiscussions,
   clearVisitorLogs,
@@ -144,7 +145,7 @@ export function useAdminWorkspace(adminLevel: number | null, isAuth: boolean): A
   const fetchCmsData = useCallback(async () => {
     setLoading(true);
     try {
-      const cms = await fetchAdminCmsData(defaultGraphNodes, defaultQuizQuestions);
+      const cms = await fetchAdminCmsData(MINDMAP_V2_NODES, defaultQuizQuestions);
       setMindmapJson(cms.mindmapJson);
       setQuizJson(cms.quizJson);
       setSheetConfig(cms.sheetConfig);
